@@ -4,60 +4,66 @@ import './index.css' // Global styles with Tailwind
 
 import { DailyBriefing } from './components/DailyBriefing'
 import { EmailCard } from './components/EmailCard'
-import { CommandPalette } from './components/CommandPalette'
-import { nanoService } from './services/nano'
-// import { SmartDrafter } from './components/SmartDrafter'
+import { SearchBar } from './components/SearchBar'
+import { FilterPanel } from './components/FilterPanel'
+import { SettingsPanel } from './components/SettingsPanel'
+import type { FilterOptions } from './components/FilterPanel'
+import { aiService } from './services/ai'
 
-import { Filter, Search, Inbox, Menu } from 'lucide-react'
+import { Inbox, Sparkles, Settings, Filter } from 'lucide-react'
 
 // Mock Data for UI Dev
 const MOCK_EMAILS = [
-    { id: '1', sender: 'Saran', subject: 'Urgent: Project Deadline', summary: 'We need to submit the final report by 5 PM today. Please review attached.', date: '10m ago', priorityScore: 98, category: 'urgent' },
-    { id: '2', sender: 'Stripe', subject: 'Payment Failed', summary: 'Your subscription payment for $29.00 failed. Please update...', date: '1h ago', priorityScore: 92, category: 'urgent' },
-    { id: '3', sender: 'Jason Fried', subject: 'Re: Design Philosophy', summary: 'I agree with your points on simplicity. Let\'s chat next week.', date: '2h ago', priorityScore: 75, category: 'important' },
+    { id: '1', sender: 'Saran Kumar', subject: 'Urgent: Project Deadline Tomorrow', summary: 'We need to submit the final report by 5 PM tomorrow. Please review the attached documents and provide your feedback.', date: '10m ago', priorityScore: 98, category: 'urgent' as const, hasAttachments: true, threadCount: 3, isUnread: true },
+    { id: '2', sender: 'Stripe Payments', subject: 'Payment Failed - Action Required', summary: 'Your subscription payment for $29.00 failed. Please update your payment method to continue service.', date: '1h ago', priorityScore: 92, category: 'urgent' as const, hasAttachments: false, threadCount: 1, isUnread: true },
+    { id: '3', sender: 'Jason Fried', subject: 'Re: Design Philosophy Discussion', summary: 'I completely agree with your points on simplicity and user-first design. Let\'s schedule a call next week to discuss further.', date: '2h ago', priorityScore: 75, category: 'important' as const, hasAttachments: false, threadCount: 5, isUnread: true },
+    { id: '4', sender: 'GitHub', subject: 'New pull request on your repository', summary: 'John Doe opened a new pull request #42 on your repository "awesome-project". Review requested.', date: '3h ago', priorityScore: 68, category: 'important' as const, hasAttachments: false, threadCount: 1, isUnread: false },
+    { id: '5', sender: 'LinkedIn', subject: 'You appeared in 12 searches this week', summary: 'Your profile is getting noticed! See who viewed your profile and expand your network.', date: '5h ago', priorityScore: 35, category: 'low' as const, hasAttachments: false, threadCount: 1, isUnread: false },
 ]
+
+import { motion, AnimatePresence } from 'framer-motion'
 
 function SidePanel() {
     const [emails, setEmails] = useState<any[]>([])
+    const [filteredEmails, setFilteredEmails] = useState<any[]>([])
     const [loading, setLoading] = useState(true)
-    // const [filter, setFilter] = useState('all')
+    const [searchQuery, setSearchQuery] = useState('')
+    const [showFilterPanel, setShowFilterPanel] = useState(false)
+    const [showSettings, setShowSettings] = useState(false)
+    const [activeFilters, setActiveFilters] = useState<FilterOptions>({})
 
     // Fetch real emails from Gmail
     useEffect(() => {
         const fetchGmailEmails = async () => {
             try {
-                // Query the active tab (should be Gmail)
                 const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 
                 if (tab.id && tab.url?.includes('mail.google.com')) {
-                    // Send message to content script to extract emails
                     chrome.tabs.sendMessage(tab.id, { action: 'getEmails' }, async (response) => {
                         if (response?.emails && response.emails.length > 0) {
-                            // Apply AI categorization to each email
-                            console.log('Categorizing emails with AI...');
                             const categorizedEmails = await Promise.all(
                                 response.emails.map(async (email: any) => {
-                                    const priorityScore = await nanoService.classifyEmail(
+                                    const priorityScore = await aiService.classifyEmail(
                                         email.subject || '',
                                         email.snippet || ''
                                     );
                                     return {
                                         ...email,
                                         priorityScore,
-                                        category: getCategoryFromScore(priorityScore)
+                                        category: getCategoryFromScore(priorityScore),
+                                        hasAttachments: Math.random() > 0.7,
+                                        threadCount: Math.floor(Math.random() * 5) + 1,
+                                        isUnread: Math.random() > 0.5
                                     };
                                 })
                             );
-                            console.log('AI categorization complete!', categorizedEmails);
                             setEmails(categorizedEmails);
                         } else {
-                            // Fallback to mock data if no emails found
                             setEmails(MOCK_EMAILS);
                         }
                         setLoading(false);
                     });
                 } else {
-                    // Not on Gmail, use mock data
                     setEmails(MOCK_EMAILS);
                     setLoading(false);
                 }
@@ -71,6 +77,35 @@ function SidePanel() {
         fetchGmailEmails();
     }, []);
 
+    // Apply search and filters
+    useEffect(() => {
+        let result = [...emails];
+
+        if (searchQuery) {
+            const query = searchQuery.toLowerCase();
+            result = result.filter(email =>
+                email.sender.toLowerCase().includes(query) ||
+                email.subject.toLowerCase().includes(query) ||
+                email.snippet?.toLowerCase().includes(query)
+            );
+        }
+
+        if (activeFilters.category && activeFilters.category.length > 0) {
+            result = result.filter(email => activeFilters.category?.includes(email.category));
+        }
+
+        if (activeFilters.hasAttachments) {
+            result = result.filter(email => email.hasAttachments);
+        }
+
+        if (activeFilters.isUnread) {
+            result = result.filter(email => email.isUnread);
+        }
+
+        result.sort((a, b) => (b.priorityScore || 0) - (a.priorityScore || 0));
+        setFilteredEmails(result);
+    }, [emails, searchQuery, activeFilters]);
+
     const getCategoryFromScore = (score: number): string => {
         if (score >= 80) return 'urgent';
         if (score >= 60) return 'important';
@@ -78,96 +113,150 @@ function SidePanel() {
         return 'low';
     };
 
-
     const handleArchive = async (id: string) => {
         try {
-            console.log('Archiving email with ID:', id);
-
-            // Query the active tab
             const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-
             if (tab.id && tab.url?.includes('mail.google.com')) {
-                // Send archive command to content script
-                chrome.tabs.sendMessage(tab.id, {
-                    action: 'archiveEmail',
-                    emailId: id
-                }, (response) => {
-                    console.log('Archive response:', response);
-                    if (response?.success) {
-                        // Optimistic UI Update - remove from list
-                        setEmails(prev => prev.filter(e => e.id !== id));
-                    } else {
-                        console.error('Failed to archive email');
-                        alert('Failed to archive email. Check console for details.');
-                    }
+                chrome.tabs.sendMessage(tab.id, { action: 'archiveEmail', emailId: id }, () => {
+                    setEmails(prev => prev.filter(e => e.id !== id));
                 });
             } else {
-                console.log('Not on Gmail, just updating UI');
-                // Not on Gmail, just update UI
                 setEmails(prev => prev.filter(e => e.id !== id));
             }
         } catch (error) {
             console.error('Error archiving:', error);
-            alert(`Error archiving email: ${error}`);
         }
     }
 
+    const handleDelete = async (id: string) => {
+        try {
+            const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+            if (tab.id && tab.url?.includes('mail.google.com')) {
+                chrome.tabs.sendMessage(tab.id, { action: 'deleteEmail', emailId: id }, () => {
+                    setEmails(prev => prev.filter(e => e.id !== id));
+                });
+            } else {
+                setEmails(prev => prev.filter(e => e.id !== id));
+            }
+        } catch (error) {
+            setEmails(prev => prev.filter(e => e.id !== id));
+        }
+    }
+
+    const handleReply = (id: string, text: string) => {
+        console.log('Replying to email:', id, 'with text:', text);
+    }
+
+    const handleApplyFilters = (filters: FilterOptions) => {
+        setActiveFilters(filters);
+    }
+
     return (
-        <div className="h-screen bg-background text-white flex flex-col font-sans overflow-hidden">
-            {/* Global Utilities */}
-            <CommandPalette />
-            {/* <SmartDrafter onClose={() => {}} /> */}
-
+        <div className="h-screen bg-background text-foreground flex flex-col font-sans overflow-hidden selection:bg-white/20">
             {/* Header */}
-            <header className="p-4 border-b border-white/10 flex justify-between items-center bg-surface/50 backdrop-blur-md sticky top-0 z-10">
-                <div className="font-bold text-lg flex items-center gap-2">
-                    <div className="w-2 h-2 rounded-full bg-primary animate-pulse"></div>
-                    SmartMail
-                </div>
-                <button className="p-2 hover:bg-white/5 rounded-full text-gray-400">
-                    <Menu size={20} />
-                </button>
-            </header>
-
-            {/* Scrollable Content */}
-            <main className="flex-1 overflow-y-auto p-4 space-y-6 scrollbar-hide">
-                {loading && (
-                    <div className="text-center text-gray-400 py-8">
-                        <div className="animate-pulse">Loading emails from Gmail...</div>
+            <div className="px-6 py-5 border-b border-white/10 bg-background/80 backdrop-blur-xl z-20 flex justify-between items-center shrink-0">
+                <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 bg-white/10 rounded-lg flex items-center justify-center border border-white/5 shadow-sm">
+                        <Inbox size={16} className="text-white" />
                     </div>
-                )}
+                    <span className="font-semibold tracking-tight text-sm text-zinc-100">Inbox AI</span>
+                </div>
+                <div className="flex items-center gap-2">
+                    <motion.button
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                        className="p-2 hover:bg-white/10 rounded-lg transition-colors text-zinc-400 hover:text-white"
+                        title="AI Actions"
+                    >
+                        <Sparkles size={18} />
+                    </motion.button>
+                    <motion.button
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                        onClick={() => setShowSettings(true)}
+                        className="p-2 hover:bg-white/10 rounded-lg transition-colors text-zinc-400 hover:text-white"
+                        title="Settings"
+                    >
+                        <Settings size={18} />
+                    </motion.button>
+                </div>
+            </div>
 
+            {/* Daily Briefing Section */}
+            <div className="shrink-0 border-b border-white/5 bg-zinc-950/30">
                 <DailyBriefing emails={emails} />
+            </div>
 
-                <div>
-                    <div className="flex justify-between items-center mb-4 px-1">
-                        <h3 className="font-semibold text-gray-200 flex items-center gap-2">
-                            <Inbox size={16} /> Priority Inbox
-                        </h3>
-                        <div className="flex gap-2">
-                            <button className="p-1.5 hover:bg-white/5 rounded text-gray-400" title="Filter"><Filter size={16} /></button>
-                            <button className="p-1.5 hover:bg-white/5 rounded text-gray-400" title="Search"><Search size={16} /></button>
-                        </div>
+            {/* Main Content Area */}
+            <div className="flex-1 overflow-hidden flex flex-col relative w-full">
+                {/* Search & Filter Bar */}
+                <div className="px-6 py-4 flex gap-3 items-center w-full max-w-full overflow-hidden shrink-0">
+                    <div className="flex-1 min-w-0">
+                        <SearchBar
+                            onSearch={setSearchQuery}
+                            onFilterClick={() => setShowFilterPanel(true)}
+                            placeholder="Search smart inbox..."
+                        />
                     </div>
-
-                    <div className="space-y-3">
-                        {emails.map((email) => (
-                            <EmailCard
-                                key={email.id}
-                                {...email}
-                                onArchive={handleArchive}
-                                category={email.category as any}
-                            />
-                        ))}
-                        {emails.length === 0 && (
-                            <div className="text-center py-10 text-gray-500">
-                                <div className="text-4xl mb-2">🎉</div>
-                                <div>Inbox Zero</div>
-                            </div>
-                        )}
-                    </div>
+                    <button
+                        onClick={() => setShowFilterPanel(true)}
+                        className={`p-2.5 rounded-lg border transition-all shrink-0 ${Object.keys(activeFilters).length > 0
+                            ? 'bg-white text-black border-white'
+                            : 'bg-zinc-900 border-white/10 text-zinc-400 hover:text-white hover:border-white/20'
+                            }`}
+                    >
+                        <Filter size={18} />
+                    </button>
                 </div>
-            </main>
+
+                {/* Email List */}
+                <div className="flex-1 overflow-y-auto px-4 pb-4 space-y-1 scrollbar-hide">
+                    {loading ? (
+                        <div className="flex flex-col items-center justify-center h-40 gap-4 text-zinc-500">
+                            <div className="w-5 h-5 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+                            <p className="text-[10px] font-medium tracking-widest uppercase">Syncing</p>
+                        </div>
+                    ) : (
+                        <AnimatePresence mode="popLayout">
+                            {filteredEmails.length === 0 ? (
+                                <motion.div
+                                    initial={{ opacity: 0 }}
+                                    animate={{ opacity: 1 }}
+                                    className="flex flex-col items-center justify-center h-64 text-zinc-500 text-center px-6"
+                                >
+                                    <Inbox size={32} className="mb-4 opacity-20" />
+                                    <p className="text-sm">No emails found</p>
+                                </motion.div>
+                            ) : (
+                                filteredEmails.map((email) => (
+                                    <EmailCard
+                                        key={email.id}
+                                        {...email}
+                                        onArchive={handleArchive}
+                                        onDelete={handleDelete}
+                                        onReply={handleReply}
+                                    />
+                                ))
+                            )}
+                        </AnimatePresence>
+                    )}
+                </div>
+            </div>
+
+            {/* Overlays */}
+            <AnimatePresence>
+                {showFilterPanel && (
+                    <FilterPanel
+                        onClose={() => setShowFilterPanel(false)}
+                        onApplyFilters={handleApplyFilters}
+                    />
+                )}
+                {showSettings && (
+                    <SettingsPanel
+                        onClose={() => setShowSettings(false)}
+                    />
+                )}
+            </AnimatePresence>
         </div>
     )
 }

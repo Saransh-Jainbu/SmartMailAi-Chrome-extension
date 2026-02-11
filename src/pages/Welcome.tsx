@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { nanoService } from '../services/nano'
+import { aiService } from '../services/ai'
 import { CheckCircle, Settings, Mail, Download, Zap } from 'lucide-react'
 
 export default function Welcome() {
@@ -10,7 +10,7 @@ export default function Welcome() {
     }, [])
 
     const checkAI = async () => {
-        const isReady = await nanoService.isAvailable()
+        const isReady = await aiService.isAvailable()
         setAiStatus(isReady ? 'ready' : 'ready')
     }
 
@@ -30,7 +30,7 @@ export default function Welcome() {
 
                 <h1 className="text-4xl font-bold tracking-tight">Welcome to SmartMail AI</h1>
                 <p className="text-xl text-gray-400">
-                    Powered by real AI models running locally in your browser
+                    Powered by advanced AI models via secure cloud inference
                 </p>
 
                 <div className="bg-surface p-6 rounded-xl border border-white/10 text-left space-y-4">
@@ -40,8 +40,8 @@ export default function Welcome() {
 
                     <div className="flex items-center justify-between p-4 bg-background/50 rounded-lg">
                         <div>
-                            <div className="font-medium">Transformers.js AI</div>
-                            <div className="text-sm text-gray-400">DistilBART + GPT-2 (Browser-based)</div>
+                            <div className="font-medium">Hugging Face AI</div>
+                            <div className="text-sm text-gray-400">Mistral + CoEdit (Cloud-based)</div>
                         </div>
                         <div className="flex items-center gap-2">
                             {aiStatus === 'checking' && <span className="animate-pulse text-gray-400">Checking...</span>}
@@ -54,8 +54,8 @@ export default function Welcome() {
                             <Download size={16} /> First-time Setup
                         </p>
                         <p className="text-gray-300">
-                            On first use, AI models (~800MB) will download automatically.
-                            They're cached locally for instant future use.
+                            We use the Hugging Face Inference API for high-quality results.
+                            No heavy downloads required.
                         </p>
                     </div>
 

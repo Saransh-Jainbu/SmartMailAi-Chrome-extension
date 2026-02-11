@@ -1,73 +1,51 @@
-# React + TypeScript + Vite
+# ⚡ SmartMail AI - Next-Gen Email Intelligence
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+SmartMail AI is a premium Chrome Extension that transforms your Gmail experience with high-performance AI. Built for executives and power users, it provides human-grade summaries, intelligent prioritization, and professional email polishing through a stunning, monochrome "Lofi" interface inspired by professional creative tools.
 
-Currently, two official plugins are available:
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+## ✨ Core Features
 
-## React Compiler
+### 🧠 Strategic Intelligence
+- **Executive Briefing**: Get real, human-like summaries of your inbox state, not just counts. Now with on-demand refresh to save credits.
+- **Priority Action Items**: The AI identifies the single most critical task in your inbox so you never miss a deadline.
+- **Smart Stream**: Emails are automatically categorized by urgency using advanced semantic analysis.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+### ✍️ Professional Polishing
+- **Tone Control**: Rewrite drafts to be strictly Formal, Casual, or Concise in one click.
+- **AI Response Generation**: Generate high-quality follow-ups based on simple prompts.
+- **Contextual Polishing**: Integrated directly into your workflow for seamless editing.
 
-## Expanding the ESLint configuration
+### 🛡️ Privacy-First Security
+- **Local Key Management**: Your OpenAI API key is stored locally in your browser's encrypted storage. 
+- **Zero Server Retention**: Your emails and keys are never sent to our servers. All AI calls happen directly from your browser to OpenAI.
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+## 🛠️ Tech Stack
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+- **Frontend**: React 18, Vite 6, TypeScript
+- **Styling**: Tailwind CSS v4 (Monochrome Lofi Theme)
+- **Animations**: Framer Motion & Lucide Icons
+- **AI Engine**: 
+  - **OpenAI**: `gpt-4o-mini` for all reasoning, generation, and classification tasks.
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+## 🚀 Getting Started
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+### 1. Installation
+1. Clone this repository.
+2. Run `npm install` to install dependencies.
+3. Run `npm run build` to generate the production bundle.
+4. Open Chrome and navigate to `chrome://extensions/`.
+5. Enable **Developer mode** and click **Load unpacked**.
+6. Select the `dist` folder from this project.
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+### 2. Configuration
+1. Open the SmartMail AI side panel in Gmail.
+2. Click the **Settings Gear** (⚙️) icon.
+3. Paste your **OpenAI API Key**.
+4. Click **Save OpenAI Key**.
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+## 📄 License
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+This project is licensed under the [MIT License](LICENSE).
+
+---
+*Built with ❤️ for a more intelligent inbox.*
