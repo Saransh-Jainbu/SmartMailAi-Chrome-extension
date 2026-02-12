@@ -32,13 +32,20 @@ function SidePanel() {
     const [showSettings, setShowSettings] = useState(false)
     const [activeFilters, setActiveFilters] = useState<FilterOptions>({})
 
-    // Fetch real emails from Gmail
+    // Load cached cache on mount, then fetch fresh
     useEffect(() => {
-        const fetchGmailEmails = async () => {
+        const loadEmails = async () => {
+            // 1. Load from cache first for instant UI
+            const cached = await chrome.storage.local.get(['emails_cache', 'last_fetch_timestamp']);
+            if (cached.emails_cache) {
+                setEmails(cached.emails_cache as any[]);
+                setLoading(false);
+            }
+
+            // 2. Fetch fresh from Gmail
             try {
                 const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-
-                if (tab.id && tab.url?.includes('mail.google.com')) {
+                if (tab?.id && tab.url?.includes('mail.google.com')) {
                     chrome.tabs.sendMessage(tab.id, { action: 'getEmails' }, async (response) => {
                         if (response?.emails && response.emails.length > 0) {
                             const categorizedEmails = await Promise.all(
@@ -51,30 +58,36 @@ function SidePanel() {
                                         ...email,
                                         priorityScore,
                                         category: getCategoryFromScore(priorityScore),
-                                        hasAttachments: Math.random() > 0.7,
+                                        hasAttachments: Math.random() > 0.7, // In reality, we'd parse this
                                         threadCount: Math.floor(Math.random() * 5) + 1,
-                                        isUnread: Math.random() > 0.5
+                                        isUnread: true // In reality, we'd parse this
                                     };
                                 })
                             );
+
+                            // Save to cache
                             setEmails(categorizedEmails);
-                        } else {
+                            chrome.storage.local.set({
+                                emails_cache: categorizedEmails,
+                                last_fetch_timestamp: Date.now()
+                            });
+                        } else if (!cached.emails_cache) {
                             setEmails(MOCK_EMAILS);
                         }
                         setLoading(false);
                     });
-                } else {
+                } else if (!cached.emails_cache) {
                     setEmails(MOCK_EMAILS);
                     setLoading(false);
                 }
             } catch (error) {
                 console.error('Error fetching emails:', error);
-                setEmails(MOCK_EMAILS);
+                if (!cached.emails_cache) setEmails(MOCK_EMAILS);
                 setLoading(false);
             }
         };
 
-        fetchGmailEmails();
+        loadEmails();
     }, []);
 
     // Apply search and filters

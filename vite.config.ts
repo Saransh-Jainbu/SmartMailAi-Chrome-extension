@@ -22,9 +22,13 @@ export default defineConfig({
         entryFileNames: 'assets/[name].js',
         chunkFileNames: 'assets/[name].js',
         assetFileNames: 'assets/[name].[ext]',
+        // Prevent code splitting for background script to avoid dynamic imports issues
+        manualChunks: undefined,
       },
     },
     outDir: 'dist',
     emptyOutDir: true,
+    // Target for service workers (no DOM globals)
+    target: 'esnext',
   },
 })
