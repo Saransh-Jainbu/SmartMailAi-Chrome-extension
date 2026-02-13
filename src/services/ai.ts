@@ -102,8 +102,21 @@ class AIServiceImpl implements AIService {
         const lowText = text.toLowerCase();
 
         // Immediate heuristic check
-        if (lowText.includes('urgent') || lowText.includes('asap') || lowText.includes('deadline')) return 90;
-        if (lowText.includes('unsubscribe') || lowText.includes('newsletter') || lowText.includes('marketing')) return 20;
+        // Immediate heuristic check
+        if (lowText.includes('urgent') || lowText.includes('asap') || lowText.includes('deadline') ||
+            lowText.includes('immediate') || lowText.includes('action required') ||
+            lowText.includes('security alert') || lowText.includes('verify your account')) return 95;
+
+        if (lowText.includes('important') || lowText.includes('payment') || lowText.includes('invoice') ||
+            lowText.includes('schedule') || lowText.includes('canceled') || lowText.includes('cancelled')) return 85;
+
+        if (lowText.includes('meeting') || lowText.includes('invite') || lowText.includes('feedback') ||
+            lowText.includes('question') || lowText.includes('request')) return 75;
+
+        if (lowText.includes('unsubscribe') || lowText.includes('newsletter') || lowText.includes('marketing') ||
+            lowText.includes('sale') || lowText.includes('offer') || lowText.includes('discount') ||
+            lowText.includes('digest') || lowText.includes('promoted') || lowText.includes('ad') ||
+            lowText.includes('no-reply') || lowText.includes('noreply') || lowText.includes('notification')) return 20;
 
         // 2. Check cache
         const cacheKey = `email_score_${this.hashString(subject + snippet.substring(0, 50))}`;

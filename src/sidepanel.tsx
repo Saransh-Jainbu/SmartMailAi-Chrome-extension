@@ -45,7 +45,7 @@ function SidePanel() {
             // 2. Fetch fresh from Gmail
             try {
                 const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-                if (tab?.id && tab.url?.includes('mail.google.com')) {
+                if (tab?.id && (tab.url?.includes('mail.google.com') || tab.url?.includes('outlook') || tab.url?.includes('office'))) {
                     chrome.tabs.sendMessage(tab.id, { action: 'getEmails' }, async (response) => {
                         if (response?.emails && response.emails.length > 0) {
                             const categorizedEmails = await Promise.all(
@@ -129,7 +129,7 @@ function SidePanel() {
     const handleArchive = async (id: string) => {
         try {
             const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-            if (tab.id && tab.url?.includes('mail.google.com')) {
+            if (tab.id && (tab.url?.includes('mail.google.com') || tab.url?.includes('outlook') || tab.url?.includes('office'))) {
                 chrome.tabs.sendMessage(tab.id, { action: 'archiveEmail', emailId: id }, () => {
                     setEmails(prev => prev.filter(e => e.id !== id));
                 });
@@ -144,7 +144,7 @@ function SidePanel() {
     const handleDelete = async (id: string) => {
         try {
             const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-            if (tab.id && tab.url?.includes('mail.google.com')) {
+            if (tab.id && (tab.url?.includes('mail.google.com') || tab.url?.includes('outlook') || tab.url?.includes('office'))) {
                 chrome.tabs.sendMessage(tab.id, { action: 'deleteEmail', emailId: id }, () => {
                     setEmails(prev => prev.filter(e => e.id !== id));
                 });

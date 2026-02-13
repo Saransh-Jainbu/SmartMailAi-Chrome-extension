@@ -11,7 +11,10 @@
         "activeTab"
     ],
     "host_permissions": [
-        "https://*/*"
+        "https://mail.google.com/*",
+        "https://outlook.live.com/*",
+        "https://outlook.office.com/*",
+        "https://outlook.office365.com/*"
     ],
     "background": {
         "service_worker": "assets/background.js",
@@ -31,12 +34,18 @@
     "content_scripts": [
         {
             "matches": [
-                "https://mail.google.com/*"
+                "https://mail.google.com/*",
+                "https://outlook.live.com/*",
+                "https://outlook.office.com/*",
+                "https://outlook.office365.com/*",
+                "https://*.outlook.com/*",
+                "https://*.office.com/*"
             ],
             "js": [
                 "assets/content.js"
             ],
-            "run_at": "document_end"
+            "run_at": "document_end",
+            "all_frames": true
         }
     ],
     "icons": {
