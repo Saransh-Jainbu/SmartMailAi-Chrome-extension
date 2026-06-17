@@ -1,0 +1,971 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SmartMail AI — Intelligent Email for Gmail &amp; Outlook</title>
+  <meta name="description" content="AI-powered email summaries, priority scoring, and one-click replies for Gmail and Outlook. Bring your own OpenAI or Anthropic Claude key." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #09090b;
+      --bg-2: #111113;
+      --surface: #18181b;
+      --surface-2: #1f1f23;
+      --border: #27272a;
+      --border-2: #3f3f46;
+      --text: #fafafa;
+      --text-2: #a1a1aa;
+      --text-3: #71717a;
+      --accent: #ffffff;
+      --green: #22c55e;
+      --green-dim: #16a34a22;
+      --blue: #60a5fa;
+      --blue-dim: #3b82f622;
+      --purple: #a78bfa;
+      --purple-dim: #7c3aed22;
+      --amber: #fbbf24;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      overflow-x: hidden;
+    }
+
+    /* ─── NAV ─── */
+    nav {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 2rem;
+      height: 64px;
+      background: rgba(9,9,11,0.85);
+      backdrop-filter: blur(20px);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .nav-logo {
+      display: flex; align-items: center; gap: 10px;
+      font-size: 15px; font-weight: 600; color: var(--text); text-decoration: none;
+    }
+
+    .nav-logo-icon {
+      width: 30px; height: 30px;
+      background: var(--surface-2);
+      border: 1px solid var(--border-2);
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+    }
+
+    .nav-logo-icon svg { width: 16px; height: 16px; }
+
+    .nav-links {
+      display: flex; gap: 2rem; align-items: center;
+      list-style: none;
+    }
+
+    .nav-links a {
+      color: var(--text-2); font-size: 14px; text-decoration: none;
+      transition: color .15s;
+    }
+    .nav-links a:hover { color: var(--text); }
+
+    .nav-cta {
+      background: var(--text);
+      color: #09090b;
+      padding: 8px 20px;
+      border-radius: 8px;
+      font-size: 14px; font-weight: 600;
+      text-decoration: none;
+      transition: opacity .15s;
+    }
+    .nav-cta:hover { opacity: .88; }
+
+    /* ─── HERO ─── */
+    .hero {
+      padding: 160px 2rem 100px;
+      max-width: 1200px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 80px;
+      align-items: center;
+    }
+
+    .hero-badge {
+      display: inline-flex; align-items: center; gap: 8px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 100px;
+      padding: 5px 14px 5px 10px;
+      font-size: 12px; font-weight: 500; color: var(--text-2);
+      margin-bottom: 28px;
+    }
+
+    .hero-badge-dot {
+      width: 6px; height: 6px; border-radius: 50%; background: var(--green);
+    }
+
+    .hero-title {
+      font-size: clamp(36px, 5vw, 58px);
+      font-weight: 800;
+      line-height: 1.08;
+      letter-spacing: -0.03em;
+      margin-bottom: 24px;
+    }
+
+    .hero-title .hl {
+      background: linear-gradient(135deg, #fff 0%, #a1a1aa 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .hero-sub {
+      font-size: 17px;
+      color: var(--text-2);
+      line-height: 1.7;
+      margin-bottom: 40px;
+      max-width: 480px;
+    }
+
+    .hero-actions { display: flex; gap: 14px; flex-wrap: wrap; }
+
+    .btn-primary {
+      display: inline-flex; align-items: center; gap: 8px;
+      background: var(--text); color: #09090b;
+      padding: 13px 26px; border-radius: 10px;
+      font-size: 15px; font-weight: 600; text-decoration: none;
+      transition: opacity .15s, transform .15s;
+    }
+    .btn-primary:hover { opacity: .9; transform: translateY(-1px); }
+
+    .btn-secondary {
+      display: inline-flex; align-items: center; gap: 8px;
+      background: transparent; color: var(--text-2);
+      border: 1px solid var(--border);
+      padding: 13px 26px; border-radius: 10px;
+      font-size: 15px; font-weight: 500; text-decoration: none;
+      transition: border-color .15s, color .15s;
+    }
+    .btn-secondary:hover { border-color: var(--border-2); color: var(--text); }
+
+    .hero-meta {
+      display: flex; align-items: center; gap: 20px;
+      margin-top: 28px;
+    }
+
+    .hero-meta-item {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 12px; color: var(--text-3);
+    }
+
+    .hero-meta-item svg { width: 14px; height: 14px; stroke: var(--green); }
+
+    /* Extension mockup */
+    .panel-mockup {
+      position: relative;
+      width: 100%;
+      max-width: 380px;
+      margin-left: auto;
+    }
+
+    .panel-frame {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      overflow: hidden;
+      box-shadow:
+        0 0 0 1px rgba(255,255,255,.04),
+        0 40px 80px rgba(0,0,0,.6),
+        0 16px 32px rgba(0,0,0,.3);
+    }
+
+    .panel-header {
+      background: var(--bg);
+      border-bottom: 1px solid var(--border);
+      padding: 14px 16px;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+
+    .panel-header-left {
+      display: flex; align-items: center; gap: 8px;
+      font-size: 13px; font-weight: 600; color: var(--text);
+    }
+
+    .panel-icon-sm {
+      width: 22px; height: 22px;
+      background: var(--surface-2); border: 1px solid var(--border);
+      border-radius: 6px;
+      display: flex; align-items: center; justify-content: center;
+    }
+
+    .panel-icon-sm svg { width: 12px; height: 12px; }
+
+    .panel-stats {
+      display: flex; gap: 6px;
+    }
+
+    .panel-stat-chip {
+      font-size: 11px; font-weight: 600;
+      padding: 3px 8px; border-radius: 6px;
+    }
+
+    .chip-urgent { background: rgba(255,255,255,0.1); color: #fff; }
+    .chip-imp { background: rgba(161,161,170,0.1); color: var(--text-2); }
+
+    .panel-briefing {
+      background: var(--bg);
+      border-bottom: 1px solid var(--border);
+      padding: 14px 16px;
+    }
+
+    .briefing-label {
+      font-size: 9px; font-weight: 700; letter-spacing: .1em;
+      text-transform: uppercase; color: var(--text-3);
+      margin-bottom: 6px;
+    }
+
+    .briefing-text {
+      font-size: 12px; color: var(--text-2); line-height: 1.5;
+    }
+
+    .briefing-action {
+      background: rgba(255,255,255,.04);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 8px 10px;
+      margin-top: 8px;
+      font-size: 11px; color: var(--text-2);
+      display: flex; gap: 6px; align-items: flex-start;
+    }
+
+    .panel-emails {
+      padding: 8px;
+      display: flex; flex-direction: column; gap: 2px;
+    }
+
+    .email-row {
+      padding: 10px 10px;
+      border-radius: 8px;
+      display: flex; gap: 10px; align-items: flex-start;
+      border: 1px solid transparent;
+    }
+    .email-row.unread { background: rgba(255,255,255,.03); border-color: var(--border); }
+
+    .email-dot {
+      width: 7px; height: 7px; border-radius: 50%; margin-top: 4px; flex-shrink: 0;
+    }
+    .dot-urgent { background: #fff; box-shadow: 0 0 6px rgba(255,255,255,.3); }
+    .dot-imp { background: #71717a; }
+    .dot-normal { background: #27272a; }
+
+    .email-body { flex: 1; min-width: 0; }
+
+    .email-from {
+      font-size: 12px; font-weight: 700; color: var(--text);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+
+    .email-sub {
+      font-size: 11px; color: var(--text-2);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px;
+    }
+
+    .email-snippet {
+      font-size: 10px; color: var(--text-3); margin-top: 2px;
+      display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden;
+    }
+
+    .email-meta {
+      font-size: 10px; color: var(--text-3); flex-shrink: 0; margin-top: 1px;
+    }
+
+    /* Glow behind mockup */
+    .panel-glow {
+      position: absolute;
+      inset: -30px;
+      background: radial-gradient(ellipse at 50% 80%, rgba(139,92,246,.12) 0%, transparent 70%);
+      pointer-events: none;
+      z-index: -1;
+    }
+
+    /* ─── SECTION SHELL ─── */
+    section {
+      padding: 100px 2rem;
+    }
+
+    .section-inner {
+      max-width: 1100px;
+      margin: 0 auto;
+    }
+
+    .section-label {
+      font-size: 12px; font-weight: 600; letter-spacing: .12em;
+      text-transform: uppercase; color: var(--text-3);
+      margin-bottom: 14px;
+    }
+
+    .section-title {
+      font-size: clamp(28px, 4vw, 44px);
+      font-weight: 800; letter-spacing: -0.03em;
+      line-height: 1.1;
+      margin-bottom: 18px;
+    }
+
+    .section-sub {
+      font-size: 16px; color: var(--text-2);
+      max-width: 540px; line-height: 1.7;
+    }
+
+    /* ─── FEATURES ─── */
+    #features { background: var(--bg); }
+
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 16px;
+      margin-top: 60px;
+    }
+
+    .feature-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 28px;
+      transition: border-color .2s;
+    }
+    .feature-card:hover { border-color: var(--border-2); }
+
+    .feature-icon {
+      width: 44px; height: 44px; border-radius: 12px;
+      display: flex; align-items: center; justify-content: center;
+      margin-bottom: 18px;
+    }
+
+    .feature-icon svg { width: 22px; height: 22px; }
+    .icon-green { background: var(--green-dim); }
+    .icon-green svg { stroke: var(--green); }
+    .icon-blue { background: var(--blue-dim); }
+    .icon-blue svg { stroke: var(--blue); }
+    .icon-purple { background: var(--purple-dim); }
+    .icon-purple svg { stroke: var(--purple); }
+    .icon-amber { background: rgba(251,191,36,.1); }
+    .icon-amber svg { stroke: var(--amber); }
+
+    .feature-title {
+      font-size: 16px; font-weight: 700; color: var(--text);
+      margin-bottom: 8px;
+    }
+
+    .feature-text {
+      font-size: 14px; color: var(--text-2); line-height: 1.65;
+    }
+
+    /* ─── HOW IT WORKS ─── */
+    #how { background: var(--bg-2); }
+
+    .steps {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 2px;
+      margin-top: 60px;
+      background: var(--border);
+      border-radius: 16px;
+      overflow: hidden;
+    }
+
+    .step {
+      background: var(--surface);
+      padding: 36px 32px;
+    }
+
+    .step-num {
+      font-size: 12px; font-weight: 700; letter-spacing: .06em;
+      color: var(--text-3); margin-bottom: 16px;
+    }
+
+    .step-title {
+      font-size: 18px; font-weight: 700; color: var(--text);
+      margin-bottom: 10px;
+    }
+
+    .step-text {
+      font-size: 14px; color: var(--text-2); line-height: 1.65;
+    }
+
+    /* ─── BYOK ─── */
+    #providers { background: var(--bg); }
+
+    .byok-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-top: 48px;
+    }
+
+    .provider-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 28px;
+      display: flex; flex-direction: column; gap: 16px;
+    }
+
+    .provider-logo {
+      font-size: 15px; font-weight: 700; color: var(--text);
+      display: flex; align-items: center; gap: 10px;
+    }
+
+    .provider-logo-badge {
+      width: 36px; height: 36px;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px; font-weight: 800;
+    }
+
+    .provider-models {
+      display: flex; flex-direction: column; gap: 8px;
+    }
+
+    .model-pill {
+      display: flex; align-items: center; justify-content: space-between;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 9px 14px;
+    }
+
+    .model-name { font-size: 13px; font-weight: 500; color: var(--text); }
+    .model-role { font-size: 11px; color: var(--text-3); }
+
+    .byok-info {
+      grid-column: 1 / -1;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 28px 32px;
+      display: flex; align-items: center; gap: 24px;
+    }
+
+    .byok-info-icon {
+      width: 52px; height: 52px; flex-shrink: 0;
+      background: rgba(34,197,94,.08);
+      border: 1px solid rgba(34,197,94,.2);
+      border-radius: 14px;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .byok-info-icon svg { width: 24px; height: 24px; stroke: var(--green); }
+
+    .byok-info-title {
+      font-size: 16px; font-weight: 700; color: var(--text); margin-bottom: 5px;
+    }
+
+    .byok-info-text {
+      font-size: 14px; color: var(--text-2); line-height: 1.6;
+    }
+
+    /* ─── PRIVACY ─── */
+    #privacy { background: var(--bg-2); }
+
+    .privacy-list {
+      margin-top: 48px;
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 12px;
+    }
+
+    .privacy-item {
+      display: flex; gap: 14px; align-items: flex-start;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+    }
+
+    .privacy-check {
+      width: 22px; height: 22px; flex-shrink: 0;
+      border-radius: 50%; background: var(--green-dim);
+      border: 1px solid rgba(34,197,94,.2);
+      display: flex; align-items: center; justify-content: center;
+    }
+    .privacy-check svg { width: 12px; height: 12px; stroke: var(--green); stroke-width: 2.5; }
+
+    .privacy-title { font-size: 14px; font-weight: 600; color: var(--text); margin-bottom: 4px; }
+    .privacy-text { font-size: 13px; color: var(--text-2); line-height: 1.55; }
+
+    /* ─── CTA ─── */
+    #cta {
+      background: var(--bg);
+      border-top: 1px solid var(--border);
+    }
+
+    .cta-inner {
+      max-width: 680px;
+      margin: 0 auto;
+      text-align: center;
+    }
+
+    .cta-title {
+      font-size: clamp(32px, 4.5vw, 52px);
+      font-weight: 800; letter-spacing: -0.03em;
+      line-height: 1.1; margin-bottom: 20px;
+    }
+
+    .cta-sub {
+      font-size: 16px; color: var(--text-2);
+      line-height: 1.7; margin-bottom: 40px;
+    }
+
+    .cta-actions {
+      display: flex; gap: 14px; justify-content: center; flex-wrap: wrap;
+    }
+
+    /* ─── FOOTER ─── */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 28px 2rem;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+
+    .footer-logo {
+      font-size: 14px; font-weight: 600; color: var(--text-3);
+      text-decoration: none;
+    }
+
+    .footer-note { font-size: 13px; color: var(--text-3); }
+
+    /* ─── DIVIDER GRADIENT ─── */
+    .gradient-line {
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--border-2), transparent);
+      margin: 0 auto;
+      max-width: 500px;
+    }
+
+    /* ─── SCROLL FADE-IN ─── */
+    .fade-in { opacity: 0; transform: translateY(20px); transition: opacity .6s ease, transform .6s ease; }
+    .fade-in.visible { opacity: 1; transform: translateY(0); }
+
+    /* ─── RESPONSIVE ─── */
+    @media (max-width: 900px) {
+      .hero { grid-template-columns: 1fr; gap: 60px; padding-top: 120px; }
+      .panel-mockup { max-width: 420px; margin: 0 auto; }
+      .steps { grid-template-columns: 1fr; }
+      .byok-grid { grid-template-columns: 1fr; }
+      .privacy-list { grid-template-columns: 1fr; }
+      .byok-info { flex-direction: column; text-align: center; }
+      footer { flex-direction: column; gap: 12px; text-align: center; }
+      nav { padding: 0 1rem; }
+      .nav-links { display: none; }
+    }
+
+    @media (max-width: 600px) {
+      section { padding: 70px 1.25rem; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ─── NAV ─── -->
+<nav>
+  <a href="#" class="nav-logo">
+    <div class="nav-logo-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#a1a1aa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="5" width="18" height="14" rx="2"/>
+        <polyline points="3 7 12 13 21 7"/>
+      </svg>
+    </div>
+    SmartMail AI
+  </a>
+  <ul class="nav-links">
+    <li><a href="#features">Features</a></li>
+    <li><a href="#how">How it works</a></li>
+    <li><a href="#providers">Providers</a></li>
+    <li><a href="#privacy">Privacy</a></li>
+  </ul>
+  <a href="#cta" class="nav-cta">Add to Chrome — Free</a>
+</nav>
+
+<!-- ─── HERO ─── -->
+<section style="padding-top: 0; padding-bottom: 0; background: var(--bg);">
+  <div class="hero">
+    <!-- Left: copy -->
+    <div>
+      <div class="hero-badge">
+        <span class="hero-badge-dot"></span>
+        Gmail &amp; Outlook · OpenAI &amp; Claude
+      </div>
+      <h1 class="hero-title">
+        Your inbox,<br>
+        <span class="hl">intelligently<br>organized.</span>
+      </h1>
+      <p class="hero-sub">
+        AI summaries, priority scoring, and one-click replies — right inside Gmail and Outlook. Powered by your own key. Your email never leaves your browser.
+      </p>
+      <div class="hero-actions">
+        <a href="#cta" class="btn-primary">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>
+          </svg>
+          Add to Chrome — Free
+        </a>
+        <a href="#features" class="btn-secondary">See features →</a>
+      </div>
+      <div class="hero-meta">
+        <span class="hero-meta-item">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+          No signup required
+        </span>
+        <span class="hero-meta-item">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+          BYOK — zero markup
+        </span>
+        <span class="hero-meta-item">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+          Local-first privacy
+        </span>
+      </div>
+    </div>
+
+    <!-- Right: extension panel mockup -->
+    <div class="panel-mockup fade-in">
+      <div class="panel-glow"></div>
+      <div class="panel-frame">
+        <!-- Panel header -->
+        <div class="panel-header">
+          <div class="panel-header-left">
+            <div class="panel-icon-sm">
+              <svg viewBox="0 0 24 24" fill="none" stroke="#a1a1aa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="5" width="18" height="14" rx="2"/><polyline points="3 7 12 13 21 7"/>
+              </svg>
+            </div>
+            Inbox AI
+          </div>
+          <div class="panel-stats">
+            <span class="panel-stat-chip chip-urgent">2 urgent</span>
+            <span class="panel-stat-chip chip-imp">5 important</span>
+          </div>
+        </div>
+        <!-- Briefing -->
+        <div class="panel-briefing">
+          <div class="briefing-label">Executive Briefing</div>
+          <div class="briefing-text">You have 2 urgent items requiring action today, including a payment issue and a project deadline. 5 important emails are awaiting your response.</div>
+          <div class="briefing-action">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#a1a1aa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;margin-top:1px"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+            Review the Stripe payment failure and update your billing method before the retry window closes.
+          </div>
+        </div>
+        <!-- Emails -->
+        <div class="panel-emails">
+          <div class="email-row unread">
+            <div class="email-dot dot-urgent"></div>
+            <div class="email-body">
+              <div class="email-from">Stripe Payments</div>
+              <div class="email-sub">Payment Failed — Action Required</div>
+              <div class="email-snippet">Your $29.00 subscription payment failed. Update your billing method to...</div>
+            </div>
+            <div class="email-meta">2m</div>
+          </div>
+          <div class="email-row unread">
+            <div class="email-dot dot-urgent"></div>
+            <div class="email-body">
+              <div class="email-from">Sarah Chen</div>
+              <div class="email-sub">Urgent: Project Deadline Tomorrow</div>
+              <div class="email-snippet">We need the final report by 5 PM. Please review and provide feedback on...</div>
+            </div>
+            <div class="email-meta">15m</div>
+          </div>
+          <div class="email-row unread">
+            <div class="email-dot dot-imp"></div>
+            <div class="email-body">
+              <div class="email-from">Jason Fried</div>
+              <div class="email-sub">Re: Design Philosophy Discussion</div>
+              <div class="email-snippet">I completely agree with your take on simplicity. Let's schedule a call...</div>
+            </div>
+            <div class="email-meta">1h</div>
+          </div>
+          <div class="email-row">
+            <div class="email-dot dot-imp"></div>
+            <div class="email-body">
+              <div class="email-from">GitHub</div>
+              <div class="email-sub">Pull request #42 opened</div>
+              <div class="email-snippet">John Doe opened PR #42 on awesome-project. Review requested.</div>
+            </div>
+            <div class="email-meta">3h</div>
+          </div>
+          <div class="email-row">
+            <div class="email-dot dot-normal"></div>
+            <div class="email-body">
+              <div class="email-from">LinkedIn</div>
+              <div class="email-sub">You appeared in 12 searches</div>
+              <div class="email-snippet">Your profile is getting noticed. See who viewed your profile...</div>
+            </div>
+            <div class="email-meta">5h</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="gradient-line"></div>
+
+<!-- ─── FEATURES ─── -->
+<section id="features">
+  <div class="section-inner">
+    <div class="fade-in">
+      <div class="section-label">Features</div>
+      <h2 class="section-title">Everything your inbox deserves.</h2>
+      <p class="section-sub">Built on real AI, not heuristics. SmartMail reads what you're already looking at and makes it intelligible.</p>
+    </div>
+
+    <div class="features-grid">
+      <div class="feature-card fade-in">
+        <div class="feature-icon icon-green">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+          </svg>
+        </div>
+        <div class="feature-title">Smart Priority Scoring</div>
+        <div class="feature-text">Every email receives a 0–100 priority score using keyword heuristics and AI classification. Urgent issues always surface first — no configuration needed.</div>
+      </div>
+
+      <div class="feature-card fade-in">
+        <div class="feature-icon icon-blue">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+          </svg>
+        </div>
+        <div class="feature-title">AI Summaries</div>
+        <div class="feature-text">One-sentence AI summaries for every email, generated on-demand and cached. Understand what each email is about in under a second, without opening it.</div>
+      </div>
+
+      <div class="feature-card fade-in">
+        <div class="feature-icon icon-purple">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+          </svg>
+        </div>
+        <div class="feature-title">Polish &amp; Draft Replies</div>
+        <div class="feature-text">Compose your reply, hit Polish, and watch it transform into a perfectly worded message. Or use Draft Reply to generate a first draft from your intent in one tap.</div>
+      </div>
+
+      <div class="feature-card fade-in">
+        <div class="feature-icon icon-amber">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
+          </svg>
+        </div>
+        <div class="feature-title">Executive Briefing</div>
+        <div class="feature-text">A daily AI briefing every time you open the panel — inbox health, urgent count, and the single most important action you should take right now.</div>
+      </div>
+
+      <div class="feature-card fade-in">
+        <div class="feature-icon icon-green">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+            <polyline points="22,6 12,13 2,6"/>
+          </svg>
+        </div>
+        <div class="feature-title">Gmail &amp; Outlook Support</div>
+        <div class="feature-text">Full support for both email clients via native content scripts. Reads your current inbox tab — no OAuth, no email forwarding, no mailbox access required.</div>
+      </div>
+
+      <div class="feature-card fade-in">
+        <div class="feature-icon icon-blue">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="10" x2="14" y2="10"/><line x1="4" y1="14" x2="20" y2="14"/><line x1="4" y1="18" x2="14" y2="18"/>
+          </svg>
+        </div>
+        <div class="feature-title">Smart Filters &amp; Search</div>
+        <div class="feature-text">Filter by category, unread status, or attachments. Full-text search across senders, subjects, and snippets — instantly, without leaving the side panel.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── HOW IT WORKS ─── -->
+<section id="how">
+  <div class="section-inner">
+    <div class="fade-in">
+      <div class="section-label">How it works</div>
+      <h2 class="section-title">Up in 60 seconds.</h2>
+      <p class="section-sub">Three steps, no account required. Your keys stay in your browser and your email never leaves your machine.</p>
+    </div>
+
+    <div class="steps fade-in">
+      <div class="step">
+        <div class="step-num">01 — Install</div>
+        <div class="step-title">Add to Chrome</div>
+        <div class="step-text">Install the extension from the Chrome Web Store in one click. No account, no email login, no permissions beyond reading the tab you're on.</div>
+      </div>
+      <div class="step">
+        <div class="step-num">02 — Connect AI</div>
+        <div class="step-title">Add your API key</div>
+        <div class="step-text">Open Settings and paste your OpenAI or Anthropic API key. It's stored locally in your browser — we never see it. Hit "Test connection" to confirm.</div>
+      </div>
+      <div class="step">
+        <div class="step-num">03 — Go</div>
+        <div class="step-title">Open Gmail or Outlook</div>
+        <div class="step-text">Click the SmartMail AI icon in your toolbar. The side panel opens, reads your inbox, and starts classifying, summarizing, and briefing you — immediately.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── BYOK PROVIDERS ─── -->
+<section id="providers">
+  <div class="section-inner">
+    <div class="fade-in">
+      <div class="section-label">Bring Your Own Key</div>
+      <h2 class="section-title">OpenAI or Claude —<br>you choose.</h2>
+      <p class="section-sub">SmartMail AI works with both providers. Switch at any time. We never add markup — you pay your provider directly.</p>
+    </div>
+
+    <div class="byok-grid fade-in">
+      <div class="provider-card">
+        <div class="provider-logo">
+          <div class="provider-logo-badge" style="color: #10a37f;">O</div>
+          OpenAI
+        </div>
+        <div class="provider-models">
+          <div class="model-pill">
+            <span class="model-name">gpt-4o-mini</span>
+            <span class="model-role">Classification &amp; summaries</span>
+          </div>
+          <div class="model-pill">
+            <span class="model-name">gpt-4o</span>
+            <span class="model-role">Drafting &amp; polish</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="provider-card">
+        <div class="provider-logo">
+          <div class="provider-logo-badge" style="color: #c17c3c;">A</div>
+          Anthropic Claude
+        </div>
+        <div class="provider-models">
+          <div class="model-pill">
+            <span class="model-name">claude-haiku-4-5</span>
+            <span class="model-role">Classification &amp; summaries</span>
+          </div>
+          <div class="model-pill">
+            <span class="model-name">claude-sonnet-4-6</span>
+            <span class="model-role">Drafting &amp; polish</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="byok-info">
+        <div class="byok-info-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+          </svg>
+        </div>
+        <div>
+          <div class="byok-info-title">Zero-trust key storage</div>
+          <div class="byok-info-text">Your API key is stored in <code style="background:var(--surface-2);padding:2px 6px;border-radius:4px;font-size:12px;">chrome.storage.local</code> — encrypted, local, never transmitted to us. All AI calls go directly from your browser to the provider's API. SmartMail AI has no backend.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── PRIVACY ─── -->
+<section id="privacy">
+  <div class="section-inner">
+    <div class="fade-in">
+      <div class="section-label">Privacy</div>
+      <h2 class="section-title">Your email stays yours.</h2>
+      <p class="section-sub">SmartMail AI is designed to be trustworthy by construction — not by policy.</p>
+    </div>
+
+    <div class="privacy-list fade-in">
+      <div class="privacy-item">
+        <div class="privacy-check">
+          <svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+        </div>
+        <div>
+          <div class="privacy-title">No mailbox login</div>
+          <div class="privacy-text">We never ask for Gmail or Outlook credentials. The extension reads the tab you're already viewing — nothing more.</div>
+        </div>
+      </div>
+      <div class="privacy-item">
+        <div class="privacy-check">
+          <svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+        </div>
+        <div>
+          <div class="privacy-title">No server-side storage</div>
+          <div class="privacy-text">SmartMail AI has no backend. Your email data, summaries, and drafts are cached locally in your browser via IndexedDB.</div>
+        </div>
+      </div>
+      <div class="privacy-item">
+        <div class="privacy-check">
+          <svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+        </div>
+        <div>
+          <div class="privacy-title">AI calls only when triggered</div>
+          <div class="privacy-text">Email content is sent to your chosen AI provider only when you explicitly request a summary, classification, or draft — never in the background.</div>
+        </div>
+      </div>
+      <div class="privacy-item">
+        <div class="privacy-check">
+          <svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+        </div>
+        <div>
+          <div class="privacy-title">Content-hash caching</div>
+          <div class="privacy-text">Identical emails are cached by content hash so the same text is never sent to the AI twice — saving both your privacy and your API budget.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── CTA ─── -->
+<section id="cta">
+  <div class="section-inner">
+    <div class="cta-inner fade-in">
+      <h2 class="cta-title">Take back<br>your inbox.</h2>
+      <p class="cta-sub">Install SmartMail AI in 60 seconds. Bring your own key. Your email stays in your browser.</p>
+      <div class="cta-actions">
+        <a href="#" class="btn-primary" style="font-size:16px; padding: 15px 32px;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>
+          </svg>
+          Add to Chrome — Free
+        </a>
+        <a href="#" class="btn-secondary" style="font-size:16px; padding: 15px 32px;">View source on GitHub</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── FOOTER ─── -->
+<footer>
+  <a href="#" class="footer-logo">SmartMail AI</a>
+  <span class="footer-note">Built with OpenAI &amp; Anthropic Claude. Keys stay in your browser.</span>
+</footer>
+
+<script>
+  const observer = new IntersectionObserver(
+    (entries) => entries.forEach(e => { if (e.isIntersecting) e.target.classList.add('visible'); }),
+    { threshold: 0.12 }
+  );
+  document.querySelectorAll('.fade-in').forEach(el => observer.observe(el));
+</script>
+
+</body>
+</html>

@@ -2,6 +2,8 @@
 import { BaseProvider } from './BaseProvider';
 import { startSuggestionMonitoring } from '../suggestions';
 
+const DEBUG = import.meta.env.DEV;
+
 export class OutlookProvider extends BaseProvider {
     name = 'Outlook';
 
@@ -20,8 +22,7 @@ export class OutlookProvider extends BaseProvider {
     ]);
 
     init(): void {
-        console.log('SmartMail AI: Initializing Outlook Provider');
-        this.injectDebugBanner();
+        if (DEBUG) console.log('SmartMail AI: Initializing Outlook Provider');
         this.injectSidePanelButton();
 
         const checkLoaded = setInterval(() => {
@@ -32,29 +33,19 @@ export class OutlookProvider extends BaseProvider {
 
             if (mainApp) {
                 clearInterval(checkLoaded);
-                console.log('SmartMail AI: Outlook loaded, ready for extraction');
+                if (DEBUG) console.log('SmartMail AI: Outlook loaded, ready for extraction');
                 this.injectSidePanelButton();
                 this.observeCompose();
+                this.observeReadingPane();
             }
         }, 1000);
-    }
-
-    injectDebugBanner() {
-        const banner = document.createElement('div');
-        banner.style.cssText = `
-            position: fixed; top: 0; left: 0; width: 100%; background: orange; color: black;
-            text-align: center; z-index: 99999; padding: 2px; font-size: 10px; pointer-events: none; font-weight: bold;
-        `;
-        banner.textContent = 'SmartMail AI: Outlook Provider Active';
-        document.body.appendChild(banner);
-        setTimeout(() => banner.remove(), 5000);
     }
 
     getInboxEmails(): any[] {
         const emails: any[] = [];
         const emailRows = document.querySelectorAll('div[role="option"], div[role="row"], div[data-list-index], div.ms-List-cell');
 
-        console.log(`SmartMail AI: Found ${emailRows.length} email rows (potential)`);
+        if (DEBUG) console.log(`SmartMail AI: Found ${emailRows.length} email rows (potential)`);
 
         emailRows.forEach((row, index) => {
             try {
@@ -62,13 +53,19 @@ export class OutlookProvider extends BaseProvider {
                 let subject = 'No Subject';
                 let snippet = '';
                 let status = 'read';
+                let hasAttachments = false;
+                let isStarred = false;
 
                 // METHOD 1: Aria Label
                 const ariaLabel = row.getAttribute('aria-label');
                 if (ariaLabel) {
-                    if (ariaLabel.toLowerCase().includes('unread')) {
+                    const lowerAria = ariaLabel.toLowerCase();
+                    if (lowerAria.includes('unread')) {
                         status = 'unread';
                     }
+                    // Outlook surfaces these states in the row's aria-label.
+                    if (lowerAria.includes('has attachment')) hasAttachments = true;
+                    if (lowerAria.includes('flagged')) isStarred = true;
                     const parts = ariaLabel.split(',');
                     const contentParts = parts
                         .map(p => p.trim())
@@ -98,6 +95,11 @@ export class OutlookProvider extends BaseProvider {
 
                 const emailId = `outlook-${Date.now()}-${index}`;
 
+                // DOM fallback for attachments if the aria-label didn't state it.
+                if (!hasAttachments && row.querySelector('[aria-label*="attachment" i], i[data-icon-name="Attach"]')) {
+                    hasAttachments = true;
+                }
+
                 if ((sender !== 'Unknown' && sender.length > 0) || (subject !== 'No Subject' && subject.length > 0)) {
                     emails.push({
                         id: emailId,
@@ -106,7 +108,11 @@ export class OutlookProvider extends BaseProvider {
                         subject: subject,
                         snippet: snippet || subject,
                         date: 'Recent',
-                        status: status
+                        status: status,
+                        isUnread: status === 'unread',
+                        hasAttachments,
+                        threadCount: 1,
+                        isStarred
                     });
                 }
             } catch (e) {
@@ -118,83 +124,194 @@ export class OutlookProvider extends BaseProvider {
     }
 
     async handleArchive(id: string): Promise<boolean> {
-        console.log('SmartMail AI: Outlook Archive not fully implemented yet for ID:', id);
+        if (DEBUG) console.log('SmartMail AI: Outlook Archive not implemented, id:', id);
         return false;
     }
 
     async handleDelete(id: string): Promise<boolean> {
-        console.log('SmartMail AI: Outlook Delete not fully implemented yet for ID:', id);
+        if (DEBUG) console.log('SmartMail AI: Outlook Delete not implemented, id:', id);
         return false;
     }
 
     observeCompose() {
-        console.log('SmartMail AI: Starting Outlook compose observer');
-        const observer = new MutationObserver((mutations) => {
-            for (const mutation of mutations) {
-                if (mutation.addedNodes.length) {
-                    const editors = document.querySelectorAll('div[contenteditable="true"][role="textbox"], div[aria-label="Message body"]');
-                    editors.forEach(editor => {
-                        const container = editor.closest('[role="dialog"]') || editor.closest('.ms-Modal') || editor.parentElement;
-                        if (container) {
-                            this.injectComposeToolbar(container as HTMLElement);
-                        }
-                    });
+        if (DEBUG) console.log('SmartMail AI: Starting Outlook compose observer');
+
+        const SEND_BUTTON_SELECTORS = [
+            '[data-testid="ComposeSendButton"]',
+            '[aria-label="Send"]',
+            'button[title="Send"]',
+            '[data-automation-id="sendButton"]',
+            '#discardCompose',
+            '[aria-label="Discard"]',
+        ];
+
+        const findComposeContainer = (editor: Element): HTMLElement | null => {
+            // Skip non-body fields (To, CC, BCC, Subject, Search)
+            const ariaLabel = editor.getAttribute('aria-label') || '';
+            if (/^(To|CC|BCC|Subject|Search)/i.test(ariaLabel)) return null;
+
+            // Prefer a named compose container higher up
+            const named =
+                editor.closest('[role="dialog"]') as HTMLElement ||
+                editor.closest('.ms-Modal') as HTMLElement ||
+                editor.closest('[class*="compose" i]') as HTMLElement;
+            if (named) return named;
+
+            // Walk up to find a container that also holds the Send button
+            let el = editor.parentElement;
+            for (let depth = 0; depth < 15 && el && el !== document.body; depth++) {
+                for (const sel of SEND_BUTTON_SELECTORS) {
+                    if (el.querySelector(sel)) return el;
                 }
+                el = el.parentElement;
             }
-        });
+
+            // Last resort: 3 levels up
+            return (editor.parentElement?.parentElement?.parentElement ||
+                editor.parentElement?.parentElement ||
+                editor.parentElement) as HTMLElement | null;
+        };
+
+        const tryInjectAll = () => {
+            // Target the compose body editor. New Outlook (Fluent UI) doesn't always
+            // expose role="textbox" on the editor, but the body is reliably labelled
+            // "Message body", so match on either signal.
+            document.querySelectorAll<HTMLElement>(
+                'div[contenteditable="true"][role="textbox"], div[contenteditable="true"][aria-label^="Message body" i]'
+            ).forEach(editor => {
+                // Skip the read-only reading-pane body, which is contenteditable but is
+                // marked aria-readonly or role="document" in new Outlook.
+                if (editor.getAttribute('aria-readonly') === 'true') return;
+                if (editor.getAttribute('role') === 'document') return;
+                const container = findComposeContainer(editor);
+                if (container) this.injectComposeToolbar(container);
+            });
+        };
+
+        const observer = new MutationObserver(tryInjectAll);
         observer.observe(document.body, { childList: true, subtree: true });
 
-        // Initial check
-        setTimeout(() => {
-            const editors = document.querySelectorAll('div[contenteditable="true"][role="textbox"], div[aria-label="Message body"]');
-            editors.forEach(editor => {
-                const container = editor.closest('[role="dialog"]') || editor.closest('.ms-Modal') || editor.parentElement;
-                if (container) {
-                    this.injectComposeToolbar(container as HTMLElement);
-                }
+        // Retry on a schedule — compose can appear 1–5 s after clicking New Message
+        setTimeout(tryInjectAll, 1000);
+        setTimeout(tryInjectAll, 2500);
+        setTimeout(tryInjectAll, 5000);
+    }
+
+    observeReadingPane() {
+        if (DEBUG) console.log('SmartMail AI: Starting Outlook reading pane observer');
+
+        const tryInject = () => {
+            // The reading toolbar is div[role="toolbar"] that contains a Reply menuitem.
+            // Matches the Fluent UI toolbar seen in new Outlook Web.
+            document.querySelectorAll<HTMLElement>('div[role="toolbar"]').forEach(toolbar => {
+                if (toolbar.querySelector('.smartmail-reading-polish-btn')) return;
+                if (!toolbar.querySelector('[aria-label="Reply"]')) return;
+                this.injectReadingPolishButton(toolbar);
             });
-        }, 2000);
+        };
+
+        const observer = new MutationObserver(tryInject);
+        observer.observe(document.body, { childList: true, subtree: true });
+        setTimeout(tryInject, 500);
+        setTimeout(tryInject, 2000);
+        setTimeout(tryInject, 4000);
+    }
+
+    injectReadingPolishButton(toolbar: HTMLElement) {
+        const btn = document.createElement('div');
+        btn.className = 'smartmail-reading-polish-btn';
+        btn.setAttribute('role', 'menuitem');
+        btn.setAttribute('tabindex', '0');
+        btn.setAttribute('aria-label', 'Polish with SmartMail AI');
+        btn.style.cssText = [
+            'display:inline-flex', 'align-items:center', 'gap:5px',
+            'padding:4px 10px', 'cursor:pointer', 'border-radius:4px',
+            'color:#0078D4', 'font-family:Segoe UI,sans-serif', 'font-size:14px',
+            'font-weight:500', 'user-select:none', 'transition:background 0.15s',
+        ].join(';');
+        btn.innerHTML = `
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+            </svg>
+            <span>Polish</span>
+        `;
+        btn.onmouseenter = () => { btn.style.backgroundColor = 'rgba(0,120,212,0.08)'; };
+        btn.onmouseleave = () => { btn.style.backgroundColor = ''; };
+
+        btn.onclick = async (e) => {
+            e.stopPropagation();
+
+            // Try to click Reply first so the compose area opens
+            const replyBtn = toolbar.querySelector<HTMLElement>('[aria-label="Reply"]');
+            if (replyBtn) replyBtn.click();
+
+            // Open the side panel for SmartDrafter
+            await this.safeSendMessage({ action: 'openSidePanel' });
+        };
+
+        // Insert before "More items" overflow button, if present
+        const moreBtn = toolbar.querySelector<HTMLElement>('[aria-label="More items"]');
+        if (moreBtn) {
+            toolbar.insertBefore(btn, moreBtn);
+        } else {
+            toolbar.appendChild(btn);
+        }
+
+        if (DEBUG) console.log('SmartMail AI: Injected reading toolbar Polish button');
     }
 
     injectComposeToolbar(composeWindow: HTMLElement) {
         if (composeWindow.querySelector('.smartmail-polish-toolbar')) return;
+        if (DEBUG) console.log('SmartMail AI: Injecting Outlook Toolbar');
 
-        console.log('SmartMail AI: Injecting Outlook Toolbar');
-
-        // Target specific Outlook DOM structure
-        // <div class="OTADH"> -> contains Send and Discard
-        const sendSplitBtn = composeWindow.querySelector('[data-testid="ComposeSendButton"]');
-        const discardBtn = composeWindow.querySelector('#discardCompose');
+        // Try to anchor next to the Send/Discard buttons (preferred)
+        const buttonSelectors = [
+            '[data-testid="ComposeSendButton"]',
+            '[aria-label="Send"]',
+            'button[title="Send"]',
+            '#discardCompose',
+            '[aria-label="Discard"]',
+            '[data-automation-id="sendButton"]',
+        ];
 
         let targetArea: HTMLElement | null = null;
-
-        if (sendSplitBtn && sendSplitBtn.parentElement) {
-            targetArea = sendSplitBtn.parentElement; // div.OTADH
-        } else if (discardBtn && discardBtn.parentElement) {
-            targetArea = discardBtn.parentElement;
-        } else {
-            // Fallback to older selectors
-            const sendBtn = composeWindow.querySelector('button[title="Send"], button[aria-label="Send"]');
-            if (sendBtn) targetArea = sendBtn.parentElement;
+        for (const sel of buttonSelectors) {
+            const el = composeWindow.querySelector(sel);
+            if (el?.parentElement) { targetArea = el.parentElement as HTMLElement; break; }
         }
 
         if (targetArea) {
             const myToolbar = document.createElement('div');
             myToolbar.className = 'smartmail-polish-toolbar';
-            myToolbar.style.cssText = 'display: inline-flex; align-items: center; margin-left: 8px; vertical-align: middle;';
-
+            myToolbar.style.cssText = 'display: inline-flex; align-items: center; margin-left: 8px; vertical-align: middle; position: relative;';
             this.createPolishButton(composeWindow, myToolbar);
-
-            // Inject after the existing buttons (usually Send and Discard)
-            // If Discard exists, maybe insert before it? Or after?
-            // User provided structure shows Send then Discard. Let's append to the end of the container.
             targetArea.appendChild(myToolbar);
-
-            // Also start inline suggestions since we found the compose window
             startSuggestionMonitoring(composeWindow);
-        } else {
-            console.warn('SmartMail AI: Could not find target area to inject toolbar');
+            return;
         }
+
+        // Fallback: inject a toolbar row above the compose body.
+        // Works when Outlook's button row uses internal class names we can't target.
+        const bodyEl = composeWindow.querySelector(
+            'div[contenteditable="true"][role="textbox"], div[aria-label="Message body"], [contenteditable="true"]'
+        ) as HTMLElement | null;
+
+        if (bodyEl?.parentElement) {
+            const floatingToolbar = document.createElement('div');
+            floatingToolbar.className = 'smartmail-polish-toolbar';
+            floatingToolbar.style.cssText = [
+                'display:flex', 'align-items:center', 'gap:6px',
+                'padding:4px 8px', 'border-bottom:1px solid rgba(0,0,0,0.1)',
+                'background:#fff', 'position:relative', 'z-index:1',
+            ].join(';');
+            this.createPolishButton(composeWindow, floatingToolbar);
+            bodyEl.parentElement.insertBefore(floatingToolbar, bodyEl);
+            startSuggestionMonitoring(composeWindow);
+            return;
+        }
+
+        if (DEBUG) console.warn('SmartMail AI: Could not find compose area to inject toolbar');
     }
 
     createPolishButton(composeWindow: HTMLElement, myToolbar: HTMLElement) {
@@ -343,10 +460,10 @@ export class OutlookProvider extends BaseProvider {
         }
 
         try {
-            const context = this.getThreadContext();
+            const context = this.getThreadContext(composeWindow);
             const recipientEmail = this.getRecipientEmail(composeWindow);
 
-            console.log('SmartMail AI: Polishing with tone:', tone);
+            if (DEBUG) console.log('SmartMail AI: Polishing with tone:', tone);
 
             const timeoutPromise = new Promise((_, reject) => {
                 setTimeout(() => reject(new Error('Request timed out after 30 seconds')), 30000);
@@ -465,29 +582,36 @@ export class OutlookProvider extends BaseProvider {
         document.body.appendChild(button);
     }
 
-    getThreadContext(): string {
-        // Outlook groups messages in div[role="list"] usually
-        const messageBodies = document.querySelectorAll('div[tabindex="-1"] div.allowTextSelection'); // Very specific OWA class often used
-
-        if (messageBodies.length > 0) {
-            // Get the last one that isn't the current draft
-            // This is tricky. Let's just grab the visible text from the reading pane
-            const readingPane = document.querySelector('[role="main"]');
-            return readingPane?.textContent?.substring(0, 1000) || '';
+    getThreadContext(composeWindow?: HTMLElement): string {
+        // Only a reply/forward carries the quoted original inside the compose body.
+        // For a new message there is no quote, so don't borrow context from the
+        // reading pane of whatever message is open behind the compose window.
+        const quoted = composeWindow?.querySelector(
+            '#divRplyFwdMsg, [id*="OriginalMessage" i], blockquote'
+        );
+        if (quoted) {
+            return (quoted as HTMLElement).innerText?.substring(0, 1000) || '';
         }
         return '';
     }
 
     getRecipientEmail(composeWindow: HTMLElement): string {
-        // Outlook To field is often in a div with role="textbox" aria-label="To"
-        const toField = composeWindow.querySelector('[aria-label="To"]');
-        if (toField) {
-            // It might be complex structure. Try to get text content or aria-label of children
-            const entities = toField.querySelectorAll('.ms-Persona-primaryText');
-            if (entities.length > 0) return entities[0].textContent || '';
+        // Outlook's To well is labelled "To"; match it within THIS compose window only.
+        const toField = composeWindow.querySelector('[aria-label^="To" i]');
+        if (!toField) return '';
 
-            return toField.textContent || '';
-        }
+        // Resolved recipients render as personas / pills exposing the name or address.
+        const persona = toField.querySelector('.ms-Persona-primaryText');
+        if (persona?.textContent?.trim()) return persona.textContent.trim();
+
+        const pill = toField.querySelector('[role="button"][title], button[title]');
+        const title = pill?.getAttribute('title')?.trim();
+        if (title) return title;
+
+        // Fall back to typed-but-unresolved text, ignoring the "To" placeholder label.
+        const text = (toField as HTMLElement).innerText?.trim();
+        if (text && !/^to\b/i.test(text)) return text;
+
         return '';
     }
 }

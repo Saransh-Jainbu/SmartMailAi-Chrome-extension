@@ -1,8 +1,8 @@
 {
     "manifest_version": 3,
-    "name": "SmartMail AI - The Executive Assistant",
-    "version": "1.0.0",
-    "description": "AI-powered email assistant that summarizes threads, drafts replies, and manages your inbox locally.",
+    "name": "SmartMail AI",
+    "version": "1.1.0",
+    "description": "AI email assistant for Gmail and Outlook. Brings priority scoring, one-sentence summaries, and AI reply drafting to your inbox. Bring your own OpenAI or Anthropic key — your email never leaves your browser.",
     "permissions": [
         "storage",
         "tabs",

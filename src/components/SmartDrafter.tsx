@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { aiService } from '../services/ai'
+import { aiClient } from '../services/aiClient'
 import { Sparkles, Send, X, Check } from 'lucide-react'
 import * as Diff from 'diff'
 
@@ -34,7 +34,7 @@ export function SmartDrafter({ onClose, recipient = 'Recipient', context = '' }:
         setDiffResult(null)
         try {
             const prompt = `Write a professional reply to this email context: "${context}". Tone: Efficient.`
-            const result = await aiService.generate(prompt)
+            const result = await aiClient.generate(prompt)
             setDraft(result)
             setSuggestion('')
         } catch (e) {
@@ -50,7 +50,7 @@ export function SmartDrafter({ onClose, recipient = 'Recipient', context = '' }:
         setIsPolishing(true)
         setDiffResult(null)
         try {
-            const polished = await aiService.polishEmail(draft, 'formal');
+            const polished = await aiClient.polish(draft, 'formal');
             const diff = Diff.diffWords(draft, polished);
             setDiffResult(diff);
         } catch (e) {

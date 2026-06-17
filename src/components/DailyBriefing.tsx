@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { BrainCircuit, ShieldCheck, RefreshCw } from 'lucide-react'
-import { aiService } from '../services/ai'
+import { aiClient } from '../services/aiClient'
 import { motion } from 'framer-motion'
 
 interface Email {
@@ -45,7 +45,7 @@ export function DailyBriefing({ emails }: DailyBriefingProps) {
 
             const prompt = `Act as an executive assistant. Here are the top emails in my inbox:\n${topEmailsContext}\n\nProvide a very concise, 2-sentence executive summary of the current state of my inbox. Then, list the #1 most critical action item I should take. Format: Summary: [2 sentences]. Action: [One clear action].`;
 
-            const aiResponse = await aiService.generate(prompt);
+            const aiResponse = await aiClient.generate(prompt);
 
             setBriefing(aiResponse)
             setStats({

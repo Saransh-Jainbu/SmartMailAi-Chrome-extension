@@ -1,16 +1,18 @@
-
+﻿
 import { BaseProvider } from './BaseProvider';
 import { startSuggestionMonitoring } from '../suggestions';
+
+const DEBUG = import.meta.env.DEV;
 
 export class GmailProvider extends BaseProvider {
     name = 'Gmail';
 
     init(): void {
-        console.log('SmartMail AI: Initializing Gmail Provider');
+if (DEBUG) console.log('SmartMail AI: Initializing Gmail Provider');
         setTimeout(() => {
             if (document.querySelector('tr.zA')) {
                 this.injectSidePanelButton();
-                console.log('SmartMail AI: Side panel button injected');
+if (DEBUG) console.log('SmartMail AI: Side panel button injected');
             }
             this.observeCompose();
         }, 2000);
@@ -23,7 +25,7 @@ export class GmailProvider extends BaseProvider {
             emailRows = document.querySelectorAll('div[data-message-id]');
         }
 
-        console.log(`SmartMail AI: Found ${emailRows.length} emails`);
+if (DEBUG) console.log(`SmartMail AI: Found ${emailRows.length} emails`);
 
         emailRows.forEach((row, index) => {
             try {
@@ -31,7 +33,12 @@ export class GmailProvider extends BaseProvider {
                 let subject = 'No Subject';
                 let snippet = '';
                 let date = 'Recent';
+                let fullDate = '';
                 let emailId = `gmail-${Date.now()}-${index}`;
+                let isUnread = false;
+                let hasAttachments = false;
+                let threadCount = 1;
+                let isStarred = false;
 
                 if (row.tagName === 'TR') {
                     const senderEl = row.querySelector('.yW span[email], .yW span');
@@ -43,11 +50,19 @@ export class GmailProvider extends BaseProvider {
                     subject = subjectEl?.textContent || 'No Subject';
                     snippet = snippetEl?.textContent || '';
                     date = dateEl?.textContent || 'Recent';
+                    // The date element carries the precise timestamp in its title attribute.
+                    fullDate = row.querySelector('.xW span[title]')?.getAttribute('title') || '';
 
                     const messageId = row.getAttribute('data-legacy-message-id') ||
                         row.getAttribute('data-message-id') ||
                         row.id;
                     if (messageId) emailId = messageId;
+
+                    // Real signals parsed from Gmail's row markup (with safe fallbacks).
+                    isUnread = row.classList.contains('zE');
+                    isStarred = this.detectStarred(row);
+                    hasAttachments = this.detectAttachments(row);
+                    threadCount = this.detectThreadCount(row);
                 } else {
                     const senderEl = row.querySelector('[email]');
                     const subjectEl = row.querySelector('h2, h3');
@@ -58,6 +73,7 @@ export class GmailProvider extends BaseProvider {
                     snippet = snippetEl?.textContent?.substring(0, 2048) || '';
 
                     emailId = row.getAttribute('data-message-id') || emailId;
+                    hasAttachments = this.detectAttachments(row);
                 }
 
                 emails.push({
@@ -67,7 +83,12 @@ export class GmailProvider extends BaseProvider {
                     subject: subject,
                     snippet: snippet,
                     date: date,
-                    status: 'unread'
+                    fullDate: fullDate,
+                    status: isUnread ? 'unread' : 'read',
+                    isUnread,
+                    hasAttachments,
+                    threadCount,
+                    isStarred
                 });
             } catch (e) {
                 console.error('Error extracting email:', e);
@@ -77,8 +98,36 @@ export class GmailProvider extends BaseProvider {
         return emails;
     }
 
+    /**
+     * Best-effort detection of real row signals. Each falls back to a non-fabricated
+     * default (false / 1) if Gmail's markup doesn't match â€” we never invent a value.
+     */
+    private detectStarred(row: Element): boolean {
+        // Gmail's star control exposes its state via aria-label ("Starred" vs "Not starred").
+        const star = row.querySelector('[aria-label="Starred"], span.T-KT.T-KT-Jp, .apU [aria-pressed="true"]');
+        return !!star;
+    }
+
+    private detectAttachments(row: Element): boolean {
+        // Attachment chips / paperclip indicators in the list row.
+        const att = row.querySelector(
+            '.aZo, .aQy, .brc, [aria-label*="attachment" i], [data-tooltip*="attachment" i]'
+        );
+        return !!att;
+    }
+
+    private detectThreadCount(row: Element): number {
+        // Gmail renders the conversation message count next to the sender, e.g. "(3)".
+        const countEl = row.querySelector('.bx0, .bze');
+        if (countEl) {
+            const n = parseInt((countEl.textContent || '').replace(/[^\d]/g, ''), 10);
+            if (!isNaN(n) && n > 0) return n;
+        }
+        return 1;
+    }
+
     async handleArchive(emailId: string): Promise<boolean> {
-        console.log('SmartMail AI: Attempting to archive email with ID:', emailId);
+if (DEBUG) console.log('SmartMail AI: Attempting to archive email with ID:', emailId);
         let row = document.querySelector(`tr[data-legacy-message-id="${emailId}"]`) ||
             document.querySelector(`tr[data-message-id="${emailId}"]`) ||
             document.querySelector(`tr[id="${emailId}"]`) ||
@@ -116,7 +165,7 @@ export class GmailProvider extends BaseProvider {
     }
 
     async handleDelete(emailId: string): Promise<boolean> {
-        console.log('SmartMail AI: Attempting to delete email with ID:', emailId);
+if (DEBUG) console.log('SmartMail AI: Attempting to delete email with ID:', emailId);
         let row = document.querySelector(`tr[data-legacy-message-id="${emailId}"]`) ||
             document.querySelector(`tr[data-message-id="${emailId}"]`) ||
             document.querySelector(`tr[id="${emailId}"]`) ||
@@ -364,9 +413,9 @@ export class GmailProvider extends BaseProvider {
         `;
 
         const menuItems = [
-            { label: '✨ Formal / Professional', tone: 'formal' },
-            { label: '👋 Casual / Friendly', tone: 'casual' },
-            { label: '🎯 Concise / Short', tone: 'concise' }
+            { label: 'âœ¨ Formal / Professional', tone: 'formal' },
+            { label: 'ðŸ‘‹ Casual / Friendly', tone: 'casual' },
+            { label: 'ðŸŽ¯ Concise / Short', tone: 'concise' }
         ];
 
         menuItems.forEach(item => {
@@ -457,10 +506,10 @@ export class GmailProvider extends BaseProvider {
         }
 
         try {
-            const context = this.getThreadContext();
+            const context = this.getThreadContext(composeWindow);
             const recipientEmail = this.getRecipientEmail(composeWindow);
 
-            console.log('SmartMail AI: Polishing with tone:', tone);
+if (DEBUG) console.log('SmartMail AI: Polishing with tone:', tone);
 
             const timeoutPromise = new Promise((_, reject) => {
                 setTimeout(() => reject(new Error('Request timed out after 30 seconds')), 30000);
@@ -544,7 +593,7 @@ export class GmailProvider extends BaseProvider {
             e.stopPropagation();
             bodyContainer.innerText = originalText;
             undoBtn.remove();
-            console.log('SmartMail AI: Reverted to original text');
+if (DEBUG) console.log('SmartMail AI: Reverted to original text');
         };
 
         polishBtn.parentElement?.appendChild(undoBtn);
@@ -558,47 +607,30 @@ export class GmailProvider extends BaseProvider {
         }, 10000);
     }
 
-    getThreadContext(): string {
-        const messages = document.querySelectorAll('.h7 .a3s');
-        if (messages.length > 0) {
-            const lastMessage = messages[messages.length - 1] as HTMLElement;
-            return lastMessage.innerText || '';
-        }
-
-        const anyBody = document.querySelectorAll('.a3s');
-        if (anyBody.length > 0) {
-            return (anyBody[anyBody.length - 1] as HTMLElement).innerText || '';
+    getThreadContext(composeWindow?: HTMLElement): string {
+        // Only a reply/forward carries the quoted original inside the compose itself.
+        // A brand-new message has no quote, so we must NOT borrow context from whatever
+        // thread happens to be open behind the compose dialog.
+        const quote = composeWindow?.querySelector('.gmail_quote, blockquote.gmail_quote');
+        if (quote) {
+            return (quote as HTMLElement).innerText?.substring(0, 1000) || '';
         }
         return '';
     }
 
     getRecipientEmail(composeWindow: HTMLElement): string {
-        const toField = composeWindow.querySelector('input[name="to"]') ||
-            composeWindow.querySelector('[aria-label*="To"]') ||
-            composeWindow.querySelector('.vR');
+        // The hidden "to" input holds the actual recipient(s) once one is added.
+        const toInput = composeWindow.querySelector('input[name="to"]') as HTMLInputElement | null;
+        if (toInput?.value) return toInput.value.split(',')[0].trim();
 
-        if (toField) {
-            const emailAttr = toField.getAttribute('email') ||
-                toField.getAttribute('data-hovercard-id') ||
-                (toField as HTMLInputElement).value;
-            if (emailAttr) return emailAttr;
-        }
+        // Otherwise read a recipient chip, but ONLY from the To area — not from the
+        // quoted original below (a reply's quote also carries the sender's [email]).
+        const toArea = composeWindow.querySelector('[aria-label="To recipients"], .aoD, [name="to"]');
+        const chip = toArea?.querySelector('[email]') as HTMLElement | null;
+        const chipEmail = chip?.getAttribute('email');
+        if (chipEmail) return chipEmail;
 
-        const emailChips = composeWindow.querySelectorAll('[email]');
-        if (emailChips.length > 0) {
-            const firstChip = emailChips[0];
-            const email = firstChip.getAttribute('email');
-            if (email) return email;
-        }
-
-        const senderElements = document.querySelectorAll('[email]');
-        for (const el of senderElements) {
-            const email = el.getAttribute('email');
-            if (email && !email.includes('me')) {
-                return email;
-            }
-        }
-
+        // New message with no recipient filled in yet — don't guess from the inbox.
         return '';
     }
 }

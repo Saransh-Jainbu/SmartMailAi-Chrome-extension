@@ -16,7 +16,7 @@ export interface IEmailProvider {
     observeCompose(): void;
 
     // Specific to polishing
-    getThreadContext(): string;
+    getThreadContext(composeWindow?: HTMLElement): string;
     getRecipientEmail(composeWindow: HTMLElement): string;
 }
 
@@ -28,7 +28,7 @@ export abstract class BaseProvider implements IEmailProvider {
     abstract handleArchive(id: string): Promise<boolean>;
     abstract handleDelete(id: string): Promise<boolean>;
     abstract observeCompose(): void;
-    abstract getThreadContext(): string;
+    abstract getThreadContext(composeWindow?: HTMLElement): string;
     abstract getRecipientEmail(composeWindow: HTMLElement): string;
 
     // Helper to safely send messages to background

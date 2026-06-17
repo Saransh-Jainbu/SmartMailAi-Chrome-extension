@@ -168,47 +168,60 @@ function findBasicIssues(text: string): WritingIssue[] {
 
 function highlightIssues(bodyContainer: HTMLElement, issues: WritingIssue[]) {
     console.log('SmartMail AI: 🎨 Highlighting', issues.length, 'issues');
-
     removeAllUnderlines(bodyContainer);
 
-    const html = bodyContainer.innerHTML;
-    let newHtml = html;
+    const typeColors = { spelling: '#EF4444', grammar: '#F59E0B', clarity: '#3B82F6' };
+    let highlighted = 0;
 
-    const typeColors = {
-        spelling: '#EF4444',
-        grammar: '#F59E0B',
-        clarity: '#3B82F6'
-    };
-
-    issues.forEach((issue, index) => {
-        const escapedText = issue.text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const regex = new RegExp(`(${escapedText})`, 'gi');
+    for (const [index, issue] of issues.entries()) {
         const color = typeColors[issue.type];
+        const needle = issue.text.toLowerCase();
 
-        newHtml = newHtml.replace(regex, (match) => {
-            return `<span class="smartmail-suggestion" data-issue-index="${index}" style="border-bottom: 2px solid ${color}; cursor: pointer;">${match}</span>`;
+        // Collect text nodes up-front — TreeWalker is live, so DOM mutations mid-walk corrupt it.
+        const textNodes: Text[] = [];
+        const walker = document.createTreeWalker(bodyContainer, NodeFilter.SHOW_TEXT, {
+            acceptNode(node) {
+                // Don't double-wrap our own spans
+                if ((node.parentElement as HTMLElement)?.classList.contains('smartmail-suggestion')) {
+                    return NodeFilter.FILTER_REJECT;
+                }
+                return NodeFilter.FILTER_ACCEPT;
+            }
         });
-    });
+        let n: Node | null;
+        while ((n = walker.nextNode())) textNodes.push(n as Text);
 
-    if (newHtml !== html) {
-        bodyContainer.innerHTML = newHtml;
-        console.log('SmartMail AI: ✅ Underlines applied!');
+        for (const textNode of textNodes) {
+            const raw = textNode.textContent || '';
+            const idx = raw.toLowerCase().indexOf(needle);
+            if (idx === -1) continue;
 
-        const suggestionSpans = bodyContainer.querySelectorAll('.smartmail-suggestion');
-        suggestionSpans.forEach((span) => {
-            const issueIndex = parseInt(span.getAttribute('data-issue-index') || '0');
-            const issue = issues[issueIndex];
+            const before = raw.slice(0, idx);
+            const matched = raw.slice(idx, idx + issue.text.length);
+            const after = raw.slice(idx + issue.text.length);
 
-            span.addEventListener('mouseenter', (e) => {
-                showTooltip(e.target as HTMLElement, issue, bodyContainer);
-            });
+            const span = document.createElement('span');
+            span.className = 'smartmail-suggestion';
+            span.dataset.issueIndex = String(index);
+            span.style.cssText = `border-bottom: 2px solid ${color}; cursor: pointer;`;
+            span.textContent = matched;
+            span.addEventListener('mouseenter', (e) => showTooltip(e.target as HTMLElement, issue, bodyContainer));
+            span.addEventListener('mouseleave', () => removeTooltip());
 
-            span.addEventListener('mouseleave', () => {
-                removeTooltip();
-            });
-        });
+            const parent = textNode.parentNode!;
+            if (before) parent.insertBefore(document.createTextNode(before), textNode);
+            parent.insertBefore(span, textNode);
+            if (after) parent.insertBefore(document.createTextNode(after), textNode);
+            parent.removeChild(textNode);
+            highlighted++;
+            break; // one highlight per issue is enough
+        }
+    }
+
+    if (highlighted > 0) {
+        console.log('SmartMail AI: ✅ Underlines applied!', highlighted);
     } else {
-        console.warn('SmartMail AI: ⚠️ HTML unchanged, underlines not applied');
+        console.warn('SmartMail AI: ⚠️ No text nodes matched — issues may not appear in the visible text');
     }
 }
 
@@ -290,11 +303,9 @@ function removeTooltip() {
 }
 
 function removeAllUnderlines(bodyContainer: HTMLElement) {
-    const suggestions = bodyContainer.querySelectorAll('.smartmail-suggestion');
-    suggestions.forEach(span => {
-        const text = span.textContent;
-        const textNode = document.createTextNode(text || '');
-        span.parentNode?.replaceChild(textNode, span);
+    bodyContainer.querySelectorAll('.smartmail-suggestion').forEach(span => {
+        span.parentNode?.replaceChild(document.createTextNode(span.textContent || ''), span);
     });
+    bodyContainer.normalize(); // merge adjacent text nodes left after span removal
     removeTooltip();
 }

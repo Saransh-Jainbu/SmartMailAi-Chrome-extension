@@ -1,42 +1,83 @@
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { Shield, Key, Save, X, CheckCircle2, Info, Loader2, User, Briefcase, FileSignature } from 'lucide-react'
+import { Shield, Key, Save, X, CheckCircle2, Info, Loader2, User, Briefcase, FileSignature, Zap, AlertCircle } from 'lucide-react'
 
 interface SettingsPanelProps {
     onClose: () => void;
 }
 
+type Provider = 'openai' | 'anthropic';
+type TestState = 'idle' | 'testing' | 'ok' | 'fail';
+
 export function SettingsPanel({ onClose }: SettingsPanelProps) {
+    const [provider, setProvider] = useState<Provider>('openai')
     const [openAiKey, setOpenAiKey] = useState('')
+    const [anthropicKey, setAnthropicKey] = useState('')
     const [userName, setUserName] = useState('')
     const [userTitle, setUserTitle] = useState('')
     const [userSignature, setUserSignature] = useState('')
     const [saving, setSaving] = useState(false)
     const [saved, setSaved] = useState(false)
+    const [testState, setTestState] = useState<TestState>('idle')
+    const [testError, setTestError] = useState('')
 
     useEffect(() => {
-        // Load keys and user settings from storage
-        chrome.storage.local.get(['openai_key', 'user_name', 'user_title', 'user_signature'], (result) => {
-            if (result.openai_key) setOpenAiKey(result.openai_key as string)
-            if (result.user_name) setUserName(result.user_name as string)
-            if (result.user_title) setUserTitle(result.user_title as string)
-            if (result.user_signature) setUserSignature(result.user_signature as string)
-        })
+        chrome.storage.local.get(
+            ['ai_provider', 'openai_key', 'anthropic_key', 'user_name', 'user_title', 'user_signature'],
+            (result) => {
+                if (result.ai_provider) setProvider(result.ai_provider as Provider)
+                if (result.openai_key) setOpenAiKey(result.openai_key as string)
+                if (result.anthropic_key) setAnthropicKey(result.anthropic_key as string)
+                if (result.user_name) setUserName(result.user_name as string)
+                if (result.user_title) setUserTitle(result.user_title as string)
+                if (result.user_signature) setUserSignature(result.user_signature as string)
+            }
+        )
     }, [])
 
-    const handleSave = async () => {
+    const handleSave = () => {
         setSaving(true)
-        chrome.storage.local.set({
-            openai_key: openAiKey,
-            user_name: userName,
-            user_title: userTitle,
-            user_signature: userSignature
-        }, () => {
-            setSaving(false)
-            setSaved(true)
-            setTimeout(() => setSaved(false), 3000)
-        })
+        chrome.storage.local.set(
+            {
+                ai_provider: provider,
+                openai_key: openAiKey,
+                anthropic_key: anthropicKey,
+                user_name: userName,
+                user_title: userTitle,
+                user_signature: userSignature,
+            },
+            () => {
+                setSaving(false)
+                setSaved(true)
+                setTestState('idle')
+                setTimeout(() => setSaved(false), 3000)
+            }
+        )
     }
+
+    const handleTestConnection = () => {
+        setTestState('testing')
+        setTestError('')
+        // Save the current keys first so the background worker sees them.
+        chrome.storage.local.set(
+            { ai_provider: provider, openai_key: openAiKey, anthropic_key: anthropicKey },
+            () => {
+                chrome.runtime.sendMessage(
+                    { action: 'ai:classify', subject: 'Test', snippet: 'Connection test' },
+                    (response) => {
+                        if (chrome.runtime.lastError || !response?.success) {
+                            setTestState('fail')
+                            setTestError(response?.error ?? chrome.runtime.lastError?.message ?? 'Unknown error')
+                        } else {
+                            setTestState('ok')
+                        }
+                    }
+                )
+            }
+        )
+    }
+
+    const activeKey = provider === 'openai' ? openAiKey : anthropicKey
 
     return (
         <motion.div
@@ -58,7 +99,7 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
                         </div>
                         <div>
                             <h2 className="text-sm font-bold text-white">Settings</h2>
-                            <p className="text-[10px] text-zinc-500 font-medium">Configure your profile & API</p>
+                            <p className="text-[10px] text-zinc-500 font-medium">Configure your profile &amp; API</p>
                         </div>
                     </div>
                     <button
@@ -79,11 +120,95 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
                         </p>
                     </div>
 
+                    {/* AI Provider Section */}
+                    <div className="space-y-4">
+                        <h3 className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">AI Provider</h3>
+
+                        {/* Provider Toggle */}
+                        <div className="grid grid-cols-2 gap-2">
+                            {(['openai', 'anthropic'] as Provider[]).map((p) => (
+                                <button
+                                    key={p}
+                                    onClick={() => { setProvider(p); setTestState('idle'); }}
+                                    className={`py-2.5 px-3 rounded-lg border text-xs font-bold uppercase tracking-wider transition-all ${
+                                        provider === p
+                                            ? 'border-white/40 bg-white/10 text-white'
+                                            : 'border-zinc-800 bg-transparent text-zinc-500 hover:border-zinc-600 hover:text-zinc-300'
+                                    }`}
+                                >
+                                    {p === 'openai' ? 'OpenAI' : 'Anthropic Claude'}
+                                </button>
+                            ))}
+                        </div>
+
+                        {/* OpenAI Key */}
+                        <div className="space-y-2">
+                            <label className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider text-zinc-500">
+                                <Key size={12} />
+                                OpenAI API Key
+                                {provider === 'openai' && <span className="text-white/60 normal-case font-normal tracking-normal">(active)</span>}
+                            </label>
+                            <input
+                                type="password"
+                                value={openAiKey}
+                                onChange={(e) => { setOpenAiKey(e.target.value); setTestState('idle'); }}
+                                placeholder="sk-..."
+                                className={`w-full bg-black border rounded-lg px-4 py-3 text-sm text-white placeholder-zinc-700 focus:outline-none transition-colors ${
+                                    provider === 'openai' ? 'border-zinc-600 focus:border-white/40' : 'border-zinc-800 opacity-50 focus:border-zinc-700'
+                                }`}
+                            />
+                        </div>
+
+                        {/* Anthropic Key */}
+                        <div className="space-y-2">
+                            <label className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider text-zinc-500">
+                                <Key size={12} />
+                                Anthropic API Key
+                                {provider === 'anthropic' && <span className="text-white/60 normal-case font-normal tracking-normal">(active)</span>}
+                            </label>
+                            <input
+                                type="password"
+                                value={anthropicKey}
+                                onChange={(e) => { setAnthropicKey(e.target.value); setTestState('idle'); }}
+                                placeholder="sk-ant-..."
+                                className={`w-full bg-black border rounded-lg px-4 py-3 text-sm text-white placeholder-zinc-700 focus:outline-none transition-colors ${
+                                    provider === 'anthropic' ? 'border-zinc-600 focus:border-white/40' : 'border-zinc-800 opacity-50 focus:border-zinc-700'
+                                }`}
+                            />
+                        </div>
+
+                        {/* Test Connection */}
+                        <div className="flex items-center gap-3">
+                            <button
+                                onClick={handleTestConnection}
+                                disabled={!activeKey || testState === 'testing'}
+                                className="flex items-center gap-2 px-4 py-2 rounded-lg border border-zinc-700 text-xs font-bold uppercase tracking-wider text-zinc-300 hover:border-zinc-400 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                            >
+                                {testState === 'testing' ? (
+                                    <Loader2 className="animate-spin" size={12} />
+                                ) : (
+                                    <Zap size={12} />
+                                )}
+                                Test Connection
+                            </button>
+
+                            {testState === 'ok' && (
+                                <span className="flex items-center gap-1.5 text-xs text-green-400">
+                                    <CheckCircle2 size={13} /> Connected
+                                </span>
+                            )}
+                            {testState === 'fail' && (
+                                <span className="flex items-center gap-1.5 text-xs text-red-400 max-w-[180px] truncate" title={testError}>
+                                    <AlertCircle size={13} /> {testError}
+                                </span>
+                            )}
+                        </div>
+                    </div>
+
                     {/* User Profile Section */}
                     <div className="space-y-4">
                         <h3 className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Your Profile</h3>
 
-                        {/* Name Field */}
                         <div className="space-y-2">
                             <label className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider text-zinc-500">
                                 <User size={12} />
@@ -98,7 +223,6 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
                             />
                         </div>
 
-                        {/* Title Field */}
                         <div className="space-y-2">
                             <label className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider text-zinc-500">
                                 <Briefcase size={12} />
@@ -113,7 +237,6 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
                             />
                         </div>
 
-                        {/* Signature Field */}
                         <div className="space-y-2">
                             <label className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider text-zinc-500">
                                 <FileSignature size={12} />
@@ -122,41 +245,20 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
                             <textarea
                                 value={userSignature}
                                 onChange={(e) => setUserSignature(e.target.value)}
-                                placeholder="Best regards,&#10;John Doe&#10;Software Engineer&#10;Company Name"
+                                placeholder={"Best regards,\nJohn Doe\nSoftware Engineer"}
                                 rows={4}
                                 className="w-full bg-black border border-zinc-800 rounded-lg px-4 py-3 text-sm text-white placeholder-zinc-700 focus:border-white/40 focus:outline-none transition-colors resize-none"
                             />
                         </div>
                     </div>
 
-                    {/* API Section */}
-                    <div className="space-y-4">
-                        <h3 className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">API Configuration</h3>
-
-                        {/* OpenAI Field */}
-                        <div className="space-y-2">
-                            <label className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider text-zinc-500">
-                                <Key size={12} />
-                                OpenAI API Key
-                            </label>
-                            <input
-                                type="password"
-                                value={openAiKey}
-                                onChange={(e) => setOpenAiKey(e.target.value)}
-                                placeholder="sk-..."
-                                className="w-full bg-black border border-zinc-800 rounded-lg px-4 py-3 text-sm text-white placeholder-zinc-700 focus:border-white/40 focus:outline-none transition-colors"
-                            />
-                        </div>
-                    </div>
-
-                    {/* Action Button */}
+                    {/* Save */}
                     <button
                         onClick={handleSave}
                         disabled={saving}
-                        className={`w-full py-3 rounded-lg font-bold text-xs uppercase tracking-widest flex items-center justify-center gap-2 transition-all ${saved
-                            ? 'bg-white text-black'
-                            : 'bg-zinc-100 text-black hover:bg-white'
-                            }`}
+                        className={`w-full py-3 rounded-lg font-bold text-xs uppercase tracking-widest flex items-center justify-center gap-2 transition-all ${
+                            saved ? 'bg-white text-black' : 'bg-zinc-100 text-black hover:bg-white'
+                        }`}
                     >
                         {saving ? (
                             <Loader2 className="animate-spin" size={14} />

@@ -1,30 +1,126 @@
-// Advanced AI Service with OpenAI Primary and Hugging Face Fallback
-// Provides high-quality GPT-powered intelligence for email tasks
-
 export interface AIService {
     isAvailable: () => Promise<boolean>;
     generate: (prompt: string) => Promise<string>;
     summarize: (text: string) => Promise<string>;
     classifyEmail: (subject: string, snippet: string) => Promise<number>;
-    polishEmail: (text: string, tone?: 'formal' | 'casual' | 'concise') => Promise<string>;
+    polishEmail: (text: string, tone?: 'formal' | 'casual' | 'concise', context?: string, recipientEmail?: string) => Promise<string>;
+    draftReply: (original: { subject: string; from: string; snippet: string }, intent: string) => Promise<string>;
 }
+
+// ---------------------------------------------------------------------------
+// Provider abstraction
+// ---------------------------------------------------------------------------
+
+interface ChatMessage {
+    role: 'user' | 'assistant';
+    content: string;
+}
+
+interface ChatOptions {
+    model: string;
+    maxTokens?: number;
+}
+
+interface LLMProvider {
+    chat(systemPrompt: string, messages: ChatMessage[], opts: ChatOptions): Promise<string>;
+}
+
+class OpenAIProvider implements LLMProvider {
+    private apiKey: string;
+    constructor(apiKey: string) { this.apiKey = apiKey; }
+
+    async chat(systemPrompt: string, messages: ChatMessage[], opts: ChatOptions): Promise<string> {
+        const body = {
+            model: opts.model,
+            max_tokens: opts.maxTokens ?? 500,
+            messages: [
+                { role: 'system', content: systemPrompt },
+                ...messages,
+            ],
+        };
+
+        const response = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+                Authorization: `Bearer ${this.apiKey}`,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(body),
+        });
+
+        if (!response.ok) {
+            if (response.status === 401) throw new Error('Invalid OpenAI API key. Check Settings.');
+            if (response.status === 429) throw new Error('OpenAI rate limit reached. Try again shortly.');
+            throw new Error(`OpenAI error ${response.status}. Try again or switch providers.`);
+        }
+
+        const data = await response.json();
+        return (data.choices[0].message.content as string).trim();
+    }
+}
+
+class AnthropicProvider implements LLMProvider {
+    private apiKey: string;
+    constructor(apiKey: string) { this.apiKey = apiKey; }
+
+    async chat(systemPrompt: string, messages: ChatMessage[], opts: ChatOptions): Promise<string> {
+        const body = {
+            model: opts.model,
+            max_tokens: opts.maxTokens ?? 500,
+            system: systemPrompt,
+            messages,
+        };
+
+        const response = await fetch('https://api.anthropic.com/v1/messages', {
+            method: 'POST',
+            headers: {
+                'x-api-key': this.apiKey,
+                'anthropic-version': '2023-06-01',
+                // Required to call the Anthropic API directly from a browser context.
+                'anthropic-dangerous-direct-browser-access': 'true',
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(body),
+        });
+
+        if (!response.ok) {
+            if (response.status === 401) throw new Error('Invalid Anthropic API key. Check Settings.');
+            if (response.status === 429) throw new Error('Anthropic rate limit reached. Try again shortly.');
+            throw new Error(`Anthropic error ${response.status}. Try again or switch providers.`);
+        }
+
+        const data = await response.json();
+        return (data.content[0].text as string).trim();
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Model constants
+// ---------------------------------------------------------------------------
+
+const OPENAI_FAST = 'gpt-4o-mini';
+const OPENAI_QUALITY = 'gpt-4o';
+// Use the exact IDs as called by the Anthropic API.
+const ANTHROPIC_FAST = 'claude-haiku-4-5-20251001';
+const ANTHROPIC_QUALITY = 'claude-sonnet-4-6';
+
+// ---------------------------------------------------------------------------
+// Concurrency queue
+// ---------------------------------------------------------------------------
 
 class PQueue {
     private queue: (() => Promise<void>)[] = [];
     private activeCount = 0;
     private concurrency: number;
 
-    constructor(concurrency: number) {
-        this.concurrency = concurrency;
-    }
+    constructor(concurrency: number) { this.concurrency = concurrency; }
 
     add<T>(task: () => Promise<T>): Promise<T> {
         return new Promise<T>((resolve, reject) => {
             const run = async () => {
                 this.activeCount++;
                 try {
-                    const result = await task();
-                    resolve(result);
+                    resolve(await task());
                 } catch (e) {
                     reject(e);
                 } finally {
@@ -32,130 +128,180 @@ class PQueue {
                     this.next();
                 }
             };
-
-            if (this.activeCount < this.concurrency) {
-                run();
-            } else {
-                this.queue.push(run);
-            }
+            if (this.activeCount < this.concurrency) run();
+            else this.queue.push(run);
         });
     }
 
     private next() {
         if (this.activeCount < this.concurrency && this.queue.length > 0) {
-            const task = this.queue.shift();
-            task?.();
+            this.queue.shift()?.();
         }
     }
 }
 
-class AIServiceImpl implements AIService {
-    private queue = new PQueue(3); // Limit to 3 concurrent requests
+// ---------------------------------------------------------------------------
+// Config helpers
+// ---------------------------------------------------------------------------
 
-    private async getKeys(): Promise<{ openAiKey: string }> {
-        return new Promise((resolve) => {
-            chrome.storage.local.get(['openai_key'], (result) => {
-                resolve({
-                    openAiKey: (result.openai_key as string) || ''
-                });
-            });
+interface AIConfig {
+    provider: 'openai' | 'anthropic' | null;
+    openaiKey: string;
+    anthropicKey: string;
+}
+
+async function readConfig(): Promise<AIConfig> {
+    return new Promise((resolve) => {
+        chrome.storage.local.get(['ai_provider', 'openai_key', 'anthropic_key'], (result) => {
+            const openaiKey = (result.openai_key as string) || '';
+            const anthropicKey = (result.anthropic_key as string) || '';
+            let provider = (result.ai_provider as 'openai' | 'anthropic' | undefined) ?? null;
+
+            // Auto-detect if not explicitly set
+            if (!provider) {
+                if (anthropicKey) provider = 'anthropic';
+                else if (openaiKey) provider = 'openai';
+            }
+
+            resolve({ provider, openaiKey, anthropicKey });
         });
+    });
+}
+
+function buildProvider(config: AIConfig): LLMProvider {
+    if (config.provider === 'anthropic' && config.anthropicKey) {
+        return new AnthropicProvider(config.anthropicKey);
     }
+    if (config.provider === 'openai' && config.openaiKey) {
+        return new OpenAIProvider(config.openaiKey);
+    }
+    throw new Error('No AI API key configured. Add your key in Settings.');
+}
+
+function fastModel(config: AIConfig): string {
+    return config.provider === 'anthropic' ? ANTHROPIC_FAST : OPENAI_FAST;
+}
+
+function qualityModel(config: AIConfig): string {
+    return config.provider === 'anthropic' ? ANTHROPIC_QUALITY : OPENAI_QUALITY;
+}
+
+// ---------------------------------------------------------------------------
+// Main service
+// ---------------------------------------------------------------------------
+
+class AIServiceImpl implements AIService {
+    private queue = new PQueue(3);
 
     async isAvailable(): Promise<boolean> {
-        const { openAiKey } = await this.getKeys();
-        return !!openAiKey;
-    }
-
-    private async callOpenAI(messages: any[], maxTokens: number = 500): Promise<string> {
-        return this.queue.add(async () => {
-            const { openAiKey } = await this.getKeys();
-            if (!openAiKey) throw new Error('OpenAI key missing. Please configure in settings (⚙️).');
-
-            const response = await fetch('https://api.openai.com/v1/chat/completions', {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${openAiKey}`,
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    model: 'gpt-4o-mini',
-                    messages,
-                    max_tokens: maxTokens,
-                    temperature: 0.7
-                }),
-            });
-
-            if (!response.ok) {
-                if (response.status === 401) throw new Error('Invalid OpenAI API Key');
-                throw new Error(`OpenAI error: ${response.status}`);
-            }
-
-            const data = await response.json();
-            return data.choices[0].message.content.trim();
-        });
-    }
-
-    async classifyEmail(subject: string, snippet: string): Promise<number> {
-        // 1. Check heuristics first (fastest)
-        const text = `Subject: ${subject}\nBody: ${snippet}`.substring(0, 2000);
-        const lowText = text.toLowerCase();
-
-        // Immediate heuristic check
-        // Immediate heuristic check
-        if (lowText.includes('urgent') || lowText.includes('asap') || lowText.includes('deadline') ||
-            lowText.includes('immediate') || lowText.includes('action required') ||
-            lowText.includes('security alert') || lowText.includes('verify your account')) return 95;
-
-        if (lowText.includes('important') || lowText.includes('payment') || lowText.includes('invoice') ||
-            lowText.includes('schedule') || lowText.includes('canceled') || lowText.includes('cancelled')) return 85;
-
-        if (lowText.includes('meeting') || lowText.includes('invite') || lowText.includes('feedback') ||
-            lowText.includes('question') || lowText.includes('request')) return 75;
-
-        if (lowText.includes('unsubscribe') || lowText.includes('newsletter') || lowText.includes('marketing') ||
-            lowText.includes('sale') || lowText.includes('offer') || lowText.includes('discount') ||
-            lowText.includes('digest') || lowText.includes('promoted') || lowText.includes('ad') ||
-            lowText.includes('no-reply') || lowText.includes('noreply') || lowText.includes('notification')) return 20;
-
-        // 2. Check cache
-        const cacheKey = `email_score_${this.hashString(subject + snippet.substring(0, 50))}`;
-        const cached = await chrome.storage.local.get(cacheKey);
-        if (cached[cacheKey]) {
-            return cached[cacheKey] as number;
-        }
-
-        const { openAiKey } = await this.getKeys();
-
-        try {
-            if (openAiKey) {
-                const result = await this.callOpenAI([
-                    { role: 'system', content: 'You are an email classifier. Rate the priority of the following email from 0 to 100. return ONLY a single number. 90-100: Urgent/Action Required, 70-89: Important, 40-69: Normal, 0-39: Low/Newsletter/Spam.' },
-                    { role: 'user', content: text }
-                ], 10);
-                const score = parseInt(result);
-                if (!isNaN(score)) {
-                    // 3. Cache the result
-                    await chrome.storage.local.set({ [cacheKey]: score });
-                    return score;
-                }
-            }
-        } catch (e) {
-            console.error('Classification error:', e);
-        }
-
-        // Fallback
-        return 50;
+        const { openaiKey, anthropicKey } = await readConfig();
+        return !!(openaiKey || anthropicKey);
     }
 
     private hashString(str: string): string {
         let hash = 0;
         for (let i = 0; i < str.length; i++) {
             const char = str.charCodeAt(i);
-            hash = (hash << 5) - hash + char;
-            hash = hash & hash; // Convert to 32bit integer
+            hash = ((hash << 5) - hash + char) & 0xffffffff;
         }
         return Math.abs(hash).toString(16);
+    }
+
+    async classifyEmail(subject: string, snippet: string): Promise<number> {
+        const text = `Subject: ${subject}\nBody: ${snippet}`.substring(0, 2000);
+        const low = text.toLowerCase();
+
+        // Fast keyword heuristics — no API call needed
+        if (low.includes('urgent') || low.includes('asap') || low.includes('deadline') ||
+            low.includes('immediate') || low.includes('action required') ||
+            low.includes('security alert') || low.includes('verify your account')) return 95;
+
+        if (low.includes('important') || low.includes('payment') || low.includes('invoice') ||
+            low.includes('schedule') || low.includes('canceled') || low.includes('cancelled')) return 85;
+
+        if (low.includes('meeting') || low.includes('invite') || low.includes('feedback') ||
+            low.includes('question') || low.includes('request')) return 75;
+
+        if (low.includes('unsubscribe') || low.includes('newsletter') || low.includes('marketing') ||
+            low.includes('sale') || low.includes('offer') || low.includes('discount') ||
+            low.includes('digest') || low.includes('promoted') ||
+            low.includes('no-reply') || low.includes('noreply') || low.includes('notification')) return 20;
+
+        // Cache check
+        const cacheKey = `email_score_${this.hashString(subject + snippet.substring(0, 50))}`;
+        const cached = await chrome.storage.local.get(cacheKey);
+        if (cached[cacheKey]) return cached[cacheKey] as number;
+
+        const config = await readConfig();
+        if (!config.provider) return 40; // No AI configured — honest neutral-low default
+
+        try {
+            const provider = buildProvider(config);
+            const result = await this.queue.add(() =>
+                provider.chat(
+                    'You are an email priority classifier. Rate the email from 0 to 100. ' +
+                    'Return ONLY a single integer. ' +
+                    '90-100: Urgent/Action required. 70-89: Important. 40-69: Normal. 0-39: Low/newsletter.',
+                    [{ role: 'user', content: text }],
+                    { model: fastModel(config), maxTokens: 10 }
+                )
+            );
+            const score = parseInt(result, 10);
+            if (!isNaN(score)) {
+                await chrome.storage.local.set({ [cacheKey]: score });
+                return score;
+            }
+        } catch (e) {
+            console.error('[AI] classifyEmail:', e);
+        }
+
+        // Heuristic fell through and AI failed — honest "normal" score
+        return 40;
+    }
+
+    async summarize(text: string): Promise<string> {
+        const cacheKey = `summary_${this.hashString(text.substring(0, 100))}`;
+        const cached = await chrome.storage.local.get(cacheKey);
+        if (cached[cacheKey]) return cached[cacheKey] as string;
+
+        const config = await readConfig();
+        if (!config.provider) return text.substring(0, 100) + '…';
+
+        try {
+            const provider = buildProvider(config);
+            const result = await this.queue.add(() =>
+                provider.chat(
+                    'Summarize this email in one short, impactful sentence. No preamble.',
+                    [{ role: 'user', content: text }],
+                    { model: fastModel(config), maxTokens: 80 }
+                )
+            );
+            await chrome.storage.local.set({ [cacheKey]: result });
+            return result;
+        } catch (e) {
+            console.error('[AI] summarize:', e);
+            return text.substring(0, 100) + '…';
+        }
+    }
+
+    async generate(prompt: string): Promise<string> {
+        const cacheKey = `gen_${this.hashString(prompt.substring(0, 200))}`;
+        const cached = await chrome.storage.local.get(cacheKey);
+        if (cached[cacheKey]) return cached[cacheKey] as string;
+
+        const config = await readConfig();
+        const provider = buildProvider(config); // throws if no key
+
+        const result = await this.queue.add(() =>
+            provider.chat(
+                'You are a helpful email assistant. Generate a high-quality email based on the prompt.',
+                [{ role: 'user', content: prompt }],
+                { model: qualityModel(config), maxTokens: 600 }
+            )
+        );
+
+        await chrome.storage.local.set({ [cacheKey]: result });
+        return result;
     }
 
     async polishEmail(
@@ -164,162 +310,89 @@ class AIServiceImpl implements AIService {
         context?: string,
         recipientEmail?: string
     ): Promise<string> {
-        const { openAiKey } = await this.getKeys();
-
-        // Get user settings for signature
-        const userSettings = await new Promise<any>((resolve) => {
-            chrome.storage.local.get(['user_name', 'user_title', 'user_signature'], (result) => {
+        const userSettings = await new Promise<{ userName: string; userTitle: string; userSignature: string }>((resolve) => {
+            chrome.storage.local.get(['user_name', 'user_title', 'user_signature'], (r) => {
                 resolve({
-                    userName: result.user_name || '',
-                    userTitle: result.user_title || '',
-                    userSignature: result.user_signature || ''
+                    userName: (r.user_name as string) || '',
+                    userTitle: (r.user_title as string) || '',
+                    userSignature: (r.user_signature as string) || '',
                 });
             });
         });
 
-        try {
-            if (openAiKey) {
-                // Extract recipient name from email
-                let recipientName = '';
-                let recipientType = 'person'; // 'person' or 'organization'
+        const config = await readConfig();
+        const provider = buildProvider(config); // throws if no key
 
-                if (recipientEmail) {
-                    // Try to extract name from email address
-                    const emailParts = recipientEmail.split('@');
-                    const localPart = emailParts[0];
-                    const domain = emailParts[1];
+        let recipientName = '';
+        let recipientType: 'person' | 'organization' = 'person';
 
-                    // Check if it's likely an organization email
-                    if (localPart.includes('info') || localPart.includes('support') ||
-                        localPart.includes('team') || localPart.includes('contact') ||
-                        localPart.includes('noreply') || localPart.includes('no-reply')) {
-                        recipientType = 'organization';
-                        // Extract company name from domain
-                        recipientName = domain?.split('.')[0] || '';
-                    } else {
-                        // It's likely a person - extract name from local part
-                        recipientName = localPart
-                            .replace(/[._-]/g, ' ')
-                            .split(' ')
-                            .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-                            .join(' ');
-                    }
-                }
-
-                let systemPrompt = `You are an expert email editor. Rewrite the following email draft to be strictly ${tone}. Keep it professional but natural.`;
-
-                // Add recipient context
-                if (recipientName) {
-                    if (recipientType === 'person') {
-                        systemPrompt += `\n\nThe recipient's name is "${recipientName}". Start the email with an appropriate greeting like "Hi ${recipientName}," or "Dear ${recipientName}," based on the tone.`;
-                    } else {
-                        systemPrompt += `\n\nThis email is being sent to an organization (${recipientName}). Use an appropriate greeting like "Dear ${recipientName} Team," or "Hello,".`;
-                    }
-                }
-
-                // Add signature context
-                if (userSettings.userName) {
-                    systemPrompt += `\n\nEnd the email with a closing and the sender's name: "${userSettings.userName}"`;
-                    if (userSettings.userTitle) {
-                        systemPrompt += ` (${userSettings.userTitle})`;
-                    }
-                    if (userSettings.userSignature) {
-                        systemPrompt += `\n\nAdd this signature at the very end:\n${userSettings.userSignature}`;
-                    }
-                }
-
-                if (context) {
-                    systemPrompt += `\n\nCONTEXT (The user is replying to this email): \n"${context.substring(0, 500)}..."\n\nEnsure the polished email directly addresses the context if relevant.`;
-                }
-
-                return await this.callOpenAI([
-                    { role: 'system', content: systemPrompt },
-                    { role: 'user', content: text }
-                ]);
+        if (recipientEmail) {
+            const [local, domain] = recipientEmail.split('@');
+            if (/info|support|team|contact|noreply|no-reply/.test(local)) {
+                recipientType = 'organization';
+                recipientName = domain?.split('.')[0] ?? '';
+            } else {
+                recipientName = local
+                    .replace(/[._-]/g, ' ')
+                    .replace(/\b\w/g, (c) => c.toUpperCase());
             }
-        } catch (e) {
-            console.error('Polish error:', e);
         }
 
-        return this.heuristicPolish(text, tone, userSettings);
+        let system =
+            `You are an expert email editor. Rewrite the following email draft to be strictly ${tone}. ` +
+            'Keep it professional but natural. Do not add preamble — return only the email.';
+
+        if (recipientName) {
+            if (recipientType === 'person') {
+                system += ` Greet the recipient as "${recipientName}".`;
+            } else {
+                system += ` This is addressed to an organization (${recipientName}); use an appropriate greeting.`;
+            }
+        }
+
+        if (userSettings.userName) {
+            system += ` Sign off with "${userSettings.userName}"`;
+            if (userSettings.userTitle) system += ` (${userSettings.userTitle})`;
+            if (userSettings.userSignature) system += `, followed by:\n${userSettings.userSignature}`;
+            system += '.';
+        }
+
+        if (context) {
+            system += `\n\nContext — the user is replying to:\n"${context.substring(0, 500)}"`;
+        }
+
+        return this.queue.add(() =>
+            provider.chat(system, [{ role: 'user', content: text }], {
+                model: qualityModel(config),
+                maxTokens: 800,
+            })
+        );
     }
 
+    async draftReply(
+        original: { subject: string; from: string; snippet: string },
+        intent: string
+    ): Promise<string> {
+        const config = await readConfig();
+        const provider = buildProvider(config); // throws if no key
 
+        const system =
+            'You are an expert email assistant. Draft a professional reply to the email below. ' +
+            'Follow the user\'s stated intent exactly. Return only the email body — no subject line, no preamble.';
 
-    async summarize(text: string): Promise<string> {
-        // Check cache
-        const cacheKey = `summary_${this.hashString(text.substring(0, 100))}`;
-        const cached = await chrome.storage.local.get(cacheKey);
-        if (cached[cacheKey]) {
-            return cached[cacheKey] as string;
-        }
+        const userMsg =
+            `Original email from ${original.from}:\n` +
+            `Subject: ${original.subject}\n` +
+            `${original.snippet}\n\n` +
+            `Draft intent: ${intent}`;
 
-        const { openAiKey } = await this.getKeys();
-        try {
-            if (openAiKey) {
-                const result = await this.callOpenAI([
-                    { role: 'system', content: 'Summarize this email in one short, impactful sentence.' },
-                    { role: 'user', content: text }
-                ], 100);
-
-                await chrome.storage.local.set({ [cacheKey]: result });
-                return result;
-            }
-        } catch (e) {
-            console.error('Summarize error:', e);
-        }
-        return text.substring(0, 100) + '...';
-    }
-
-    async generate(prompt: string): Promise<string> {
-        // Check cache for generation (useful for Daily Briefing)
-        const cacheKey = `gen_${this.hashString(prompt.substring(0, 200))}`;
-        const cached = await chrome.storage.local.get(cacheKey);
-        if (cached[cacheKey]) {
-            return cached[cacheKey] as string;
-        }
-
-        const { openAiKey } = await this.getKeys();
-        try {
-            if (openAiKey) {
-                const result = await this.callOpenAI([
-                    { role: 'system', content: 'You are a helpful email assistant. Generate a high-quality email response based on the prompt.' },
-                    { role: 'user', content: prompt }
-                ]);
-
-                await chrome.storage.local.set({ [cacheKey]: result });
-                return result;
-            }
-        } catch (e) {
-            console.error('Generation error:', e);
-        }
-        return "I will follow up on this shortly.";
-    }
-
-    private heuristicPolish(text: string, tone: 'formal' | 'casual' | 'concise', userSettings?: any): string {
-        let polished = text.trim();
-        if (tone === 'formal') {
-            polished = polished.replace(/\b(hey|hi)\b/gi, "Dear").replace(/\b(thanks|thx)\b/gi, "Thank you");
-            if (!polished.startsWith("Dear")) polished = "Dear Recipient,\n\n" + polished;
-
-            // Add signature if available
-            if (userSettings?.userName) {
-                if (!polished.includes("Sincerely")) {
-                    polished += "\n\nSincerely,\n" + userSettings.userName;
-                    if (userSettings.userTitle) {
-                        polished += "\n" + userSettings.userTitle;
-                    }
-                }
-                if (userSettings.userSignature) {
-                    polished += "\n\n" + userSettings.userSignature;
-                }
-            } else if (!polished.includes("Sincerely")) {
-                polished += "\n\nSincerely,\n[Your Name]";
-            }
-        }
-        return polished.charAt(0).toUpperCase() + polished.slice(1);
+        return this.queue.add(() =>
+            provider.chat(system, [{ role: 'user', content: userMsg }], {
+                model: qualityModel(config),
+                maxTokens: 600,
+            })
+        );
     }
 }
 
 export const aiService = new AIServiceImpl();
-

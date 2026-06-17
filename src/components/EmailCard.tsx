@@ -1,6 +1,6 @@
 import { Archive, Star, Reply, Paperclip, Trash2, Check, X, Sparkles } from 'lucide-react'
 import { useState } from 'react'
-import { aiService } from '../services/ai'
+import { aiClient } from '../services/aiClient'
 import * as Diff from 'diff'
 
 interface EmailCardProps {
@@ -55,7 +55,7 @@ export function EmailCard({
         setIsPolishing(true)
         setDiffResult(null)
         try {
-            const polished = await aiService.polishEmail(replyText, 'formal');
+            const polished = await aiClient.polish(replyText, 'formal');
             const diff = Diff.diffWords(replyText, polished);
             setDiffResult(diff);
         } catch (e) {

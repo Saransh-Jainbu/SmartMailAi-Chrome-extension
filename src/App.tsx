@@ -6,6 +6,8 @@ function App() {
   const [stats, setStats] = useState({ urgent: 0, important: 0, total: 0, unread: 0 })
   const [loading, setLoading] = useState(true)
   const [greeting, setGreeting] = useState('')
+  const [hasData, setHasData] = useState(false)
+  const [provider, setProvider] = useState<string>('')
 
   useEffect(() => {
     // Set greeting based on time
@@ -14,29 +16,54 @@ function App() {
     else if (hour < 18) setGreeting('Good Afternoon')
     else setGreeting('Good Evening')
 
-    // Try to get real stats from Gmail
-    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-      if (tabs[0]?.url?.includes('mail.google.com') && tabs[0].id) {
-        chrome.tabs.sendMessage(tabs[0].id, { action: 'getEmails' }, (response) => {
-          if (response?.emails) {
-            const emails = response.emails
+    const computeStats = (emails: any[]) => ({
+      // Categories come from the real AI classification cached by the side panel.
+      urgent: emails.filter((e: any) => e.category === 'urgent').length,
+      important: emails.filter((e: any) => e.category === 'important').length,
+      total: emails.length,
+      unread: emails.filter((e: any) => e.isUnread ?? (e.status !== 'read')).length,
+    })
+
+    const load = async () => {
+      // Reflect which AI provider is actually configured.
+      const cfg = await chrome.storage.local.get(['ai_provider', 'openai_key', 'anthropic_key', 'emails_cache'])
+      if (cfg.anthropic_key && (cfg.ai_provider === 'anthropic' || !cfg.openai_key)) setProvider('Anthropic Claude')
+      else if (cfg.openai_key) setProvider('OpenAI')
+      else setProvider('')
+
+      // Prefer the classified cache the side panel maintains (real categories + unread).
+      const cached = (cfg.emails_cache as any[]) || []
+      if (cached.length > 0) {
+        setStats(computeStats(cached))
+        setHasData(true)
+        setLoading(false)
+        return
+      }
+
+      // No cache yet: only show real numbers from the live mail tab. Otherwise stay empty.
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
+      const isMailTab = !!tab?.id && (tab.url?.includes('mail.google.com') || tab.url?.includes('outlook') || tab.url?.includes('office'))
+      if (isMailTab && tab.id) {
+        chrome.tabs.sendMessage(tab.id, { action: 'getEmails' }, (response) => {
+          const emails = response?.emails || []
+          if (emails.length > 0) {
+            // Without classification here we only show what we can measure honestly.
             setStats({
-              urgent: emails.filter((e: any) => e.subject?.toLowerCase().includes('urgent')).length,
-              important: emails.filter((e: any) => !e.subject?.toLowerCase().includes('unsubscribe')).length,
+              urgent: 0,
+              important: 0,
               total: emails.length,
-              unread: Math.floor(emails.length * 0.6) // Mock for now
+              unread: emails.filter((e: any) => e.isUnread ?? (e.status !== 'read')).length,
             })
-          } else {
-            // Mock data if not on Gmail
-            setStats({ urgent: 3, important: 8, total: 24, unread: 12 })
+            setHasData(true)
           }
           setLoading(false)
         })
       } else {
-        setStats({ urgent: 3, important: 8, total: 24, unread: 12 })
         setLoading(false)
       }
-    })
+    }
+
+    load()
   }, [])
 
   const openSidePanel = () => {
@@ -52,6 +79,9 @@ function App() {
     chrome.tabs.create({ url: 'https://mail.google.com' })
     window.close()
   }
+
+  // Show a number only when we actually measured one; otherwise an honest em-dash.
+  const show = (n: number) => (loading ? '...' : hasData ? n : '–')
 
   return (
     <div className="w-[400px] min-h-[550px] bg-gradient-to-br from-background via-surface to-background text-white font-sans flex flex-col">
@@ -93,7 +123,7 @@ function App() {
               <span className="text-xs text-gray-400 uppercase tracking-wide">Urgent</span>
             </div>
             <div className="text-3xl font-bold text-white mb-1">
-              {loading ? '...' : stats.urgent}
+              {show(stats.urgent)}
             </div>
             <div className="text-xs text-gray-500">Needs attention</div>
           </div>
@@ -107,7 +137,7 @@ function App() {
               <span className="text-xs text-gray-400 uppercase tracking-wide">Important</span>
             </div>
             <div className="text-3xl font-bold text-white mb-1">
-              {loading ? '...' : stats.important}
+              {show(stats.important)}
             </div>
             <div className="text-xs text-gray-500">To review</div>
           </div>
@@ -121,7 +151,7 @@ function App() {
               <span className="text-xs text-gray-400 uppercase tracking-wide">Unread</span>
             </div>
             <div className="text-3xl font-bold text-white mb-1">
-              {loading ? '...' : stats.unread}
+              {show(stats.unread)}
             </div>
             <div className="text-xs text-gray-500">New messages</div>
           </div>
@@ -135,7 +165,7 @@ function App() {
               <span className="text-xs text-gray-400 uppercase tracking-wide">Total</span>
             </div>
             <div className="text-3xl font-bold text-white mb-1">
-              {loading ? '...' : stats.total}
+              {show(stats.total)}
             </div>
             <div className="text-xs text-gray-500">In inbox</div>
           </div>
@@ -178,15 +208,19 @@ function App() {
           </button>
         </div>
 
-        {/* AI Status */}
+        {/* AI Status — reflects the actually configured provider */}
         <div className="glass-strong p-4 rounded-xl border border-primary/30">
           <div className="flex items-center gap-3">
-            <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse shadow-lg shadow-green-500/50"></div>
+            <div className={`w-2 h-2 rounded-full ${provider ? 'bg-green-500 animate-pulse shadow-lg shadow-green-500/50' : 'bg-gray-500'}`}></div>
             <div className="flex-1">
-              <div className="text-sm font-semibold text-white">AI Classification Active</div>
-              <div className="text-xs text-gray-400">Powered by Hugging Face</div>
+              <div className="text-sm font-semibold text-white">
+                {provider ? 'AI Classification Active' : 'AI Not Configured'}
+              </div>
+              <div className="text-xs text-gray-400">
+                {provider ? `Powered by ${provider}` : 'Add an API key in Settings to enable AI'}
+              </div>
             </div>
-            <Shield size={16} className="text-green-400" />
+            <Shield size={16} className={provider ? 'text-green-400' : 'text-gray-500'} />
           </div>
         </div>
       </main>

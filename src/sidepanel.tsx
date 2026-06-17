@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import ReactDOM from 'react-dom/client'
 import './index.css' // Global styles with Tailwind
 
@@ -7,13 +7,16 @@ import { EmailCard } from './components/EmailCard'
 import { SearchBar } from './components/SearchBar'
 import { FilterPanel } from './components/FilterPanel'
 import { SettingsPanel } from './components/SettingsPanel'
+import { SmartDrafter } from './components/SmartDrafter'
+import { CommandPalette } from './components/CommandPalette'
 import type { FilterOptions } from './components/FilterPanel'
-import { aiService } from './services/ai'
+import { aiClient } from './services/aiClient'
 
-import { Inbox, Sparkles, Settings, Filter } from 'lucide-react'
+import { Inbox, PenSquare, Settings, Filter } from 'lucide-react'
 
-// Mock Data for UI Dev
-const MOCK_EMAILS = [
+// Sample data shown ONLY in dev builds (import.meta.env.DEV) so the UI can be worked on
+// without a live inbox. It is never shown to real users in a production build.
+const DEV_SAMPLE_EMAILS = [
     { id: '1', sender: 'Saran Kumar', subject: 'Urgent: Project Deadline Tomorrow', summary: 'We need to submit the final report by 5 PM tomorrow. Please review the attached documents and provide your feedback.', date: '10m ago', priorityScore: 98, category: 'urgent' as const, hasAttachments: true, threadCount: 3, isUnread: true },
     { id: '2', sender: 'Stripe Payments', subject: 'Payment Failed - Action Required', summary: 'Your subscription payment for $29.00 failed. Please update your payment method to continue service.', date: '1h ago', priorityScore: 92, category: 'urgent' as const, hasAttachments: false, threadCount: 1, isUnread: true },
     { id: '3', sender: 'Jason Fried', subject: 'Re: Design Philosophy Discussion', summary: 'I completely agree with your points on simplicity and user-first design. Let\'s schedule a call next week to discuss further.', date: '2h ago', priorityScore: 75, category: 'important' as const, hasAttachments: false, threadCount: 5, isUnread: true },
@@ -23,6 +26,13 @@ const MOCK_EMAILS = [
 
 import { motion, AnimatePresence } from 'framer-motion'
 
+function getCategoryFromScore(score: number): string {
+    if (score >= 80) return 'urgent';
+    if (score >= 60) return 'important';
+    if (score >= 40) return 'normal';
+    return 'low';
+}
+
 function SidePanel() {
     const [emails, setEmails] = useState<any[]>([])
     const [filteredEmails, setFilteredEmails] = useState<any[]>([])
@@ -30,65 +40,100 @@ function SidePanel() {
     const [searchQuery, setSearchQuery] = useState('')
     const [showFilterPanel, setShowFilterPanel] = useState(false)
     const [showSettings, setShowSettings] = useState(false)
+    const [showDrafter, setShowDrafter] = useState(false)
     const [activeFilters, setActiveFilters] = useState<FilterOptions>({})
+    // True when the active tab isn't Gmail/Outlook, so we show an honest onboarding state
+    // instead of fabricated sample emails.
+    const [notOnMailTab, setNotOnMailTab] = useState(false)
 
-    // Load cached cache on mount, then fetch fresh
-    useEffect(() => {
-        const loadEmails = async () => {
-            // 1. Load from cache first for instant UI
-            const cached = await chrome.storage.local.get(['emails_cache', 'last_fetch_timestamp']);
+    // skipCache=true on tab-switch so we never briefly flash the previous provider's emails
+    const loadEmails = useCallback(async (skipCache = false) => {
+        setLoading(true);
+
+        if (!skipCache) {
+            const cached = await chrome.storage.local.get(['emails_cache']);
             if (cached.emails_cache) {
                 setEmails(cached.emails_cache as any[]);
                 setLoading(false);
             }
+        }
 
-            // 2. Fetch fresh from Gmail
-            try {
-                const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-                if (tab?.id && (tab.url?.includes('mail.google.com') || tab.url?.includes('outlook') || tab.url?.includes('office'))) {
-                    chrome.tabs.sendMessage(tab.id, { action: 'getEmails' }, async (response) => {
-                        if (response?.emails && response.emails.length > 0) {
-                            const categorizedEmails = await Promise.all(
-                                response.emails.map(async (email: any) => {
-                                    const priorityScore = await aiService.classifyEmail(
-                                        email.subject || '',
-                                        email.snippet || ''
-                                    );
-                                    return {
-                                        ...email,
-                                        priorityScore,
-                                        category: getCategoryFromScore(priorityScore),
-                                        hasAttachments: Math.random() > 0.7, // In reality, we'd parse this
-                                        threadCount: Math.floor(Math.random() * 5) + 1,
-                                        isUnread: true // In reality, we'd parse this
-                                    };
-                                })
-                            );
+        try {
+            const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+            const isMailTab = !!tab?.id && (
+                tab.url?.includes('mail.google.com') ||
+                tab.url?.includes('outlook') ||
+                tab.url?.includes('office')
+            );
 
-                            // Save to cache
-                            setEmails(categorizedEmails);
-                            chrome.storage.local.set({
-                                emails_cache: categorizedEmails,
-                                last_fetch_timestamp: Date.now()
-                            });
-                        } else if (!cached.emails_cache) {
-                            setEmails(MOCK_EMAILS);
-                        }
+            if (isMailTab && tab.id) {
+                chrome.tabs.sendMessage(tab.id, { action: 'getEmails' }, async (response) => {
+                    if (chrome.runtime.lastError || !response?.emails?.length) {
+                        if (skipCache) setEmails(import.meta.env.DEV ? DEV_SAMPLE_EMAILS : []);
                         setLoading(false);
+                        return;
+                    }
+
+                    const categorizedEmails = await Promise.all(
+                        response.emails.map(async (email: any) => {
+                            const priorityScore = await aiClient.classify(
+                                email.subject || '',
+                                email.snippet || ''
+                            );
+                            return {
+                                ...email,
+                                priorityScore,
+                                category: getCategoryFromScore(priorityScore),
+                                summary: email.summary || email.snippet || '',
+                                hasAttachments: !!email.hasAttachments,
+                                threadCount: email.threadCount ?? 1,
+                                isUnread: email.isUnread ?? (email.status !== 'read'),
+                                isStarred: !!email.isStarred,
+                            };
+                        })
+                    );
+
+                    setNotOnMailTab(false);
+                    setEmails(categorizedEmails);
+                    chrome.storage.local.set({
+                        emails_cache: categorizedEmails,
+                        last_fetch_timestamp: Date.now(),
                     });
-                } else if (!cached.emails_cache) {
-                    setEmails(MOCK_EMAILS);
                     setLoading(false);
+                });
+            } else {
+                if (import.meta.env.DEV) {
+                    setEmails(DEV_SAMPLE_EMAILS);
+                } else {
+                    setNotOnMailTab(true);
+                    setEmails([]);
                 }
-            } catch (error) {
-                console.error('Error fetching emails:', error);
-                if (!cached.emails_cache) setEmails(MOCK_EMAILS);
                 setLoading(false);
             }
-        };
-
-        loadEmails();
+        } catch (error) {
+            console.error('Error fetching emails:', error);
+            setEmails(import.meta.env.DEV ? DEV_SAMPLE_EMAILS : []);
+            setLoading(false);
+        }
     }, []);
+
+    // Initial load on mount
+    useEffect(() => { loadEmails(); }, [loadEmails]);
+
+    // Re-fetch when the user switches tabs (Gmail → Outlook or vice-versa).
+    // Clear current list first so the old provider's emails never flash on screen.
+    useEffect(() => {
+        const onActivated = () => { setEmails([]); loadEmails(true); };
+        const onUpdated = (_tabId: number, changeInfo: { status?: string }) => {
+            if (changeInfo.status === 'complete') { setEmails([]); loadEmails(true); }
+        };
+        chrome.tabs.onActivated.addListener(onActivated);
+        chrome.tabs.onUpdated.addListener(onUpdated);
+        return () => {
+            chrome.tabs.onActivated.removeListener(onActivated);
+            chrome.tabs.onUpdated.removeListener(onUpdated);
+        };
+    }, [loadEmails]);
 
     // Apply search and filters
     useEffect(() => {
@@ -118,13 +163,6 @@ function SidePanel() {
         result.sort((a, b) => (b.priorityScore || 0) - (a.priorityScore || 0));
         setFilteredEmails(result);
     }, [emails, searchQuery, activeFilters]);
-
-    const getCategoryFromScore = (score: number): string => {
-        if (score >= 80) return 'urgent';
-        if (score >= 60) return 'important';
-        if (score >= 40) return 'normal';
-        return 'low';
-    };
 
     const handleArchive = async (id: string) => {
         try {
@@ -156,8 +194,9 @@ function SidePanel() {
         }
     }
 
-    const handleReply = (id: string, text: string) => {
-        console.log('Replying to email:', id, 'with text:', text);
+    const handleReply = (_id: string, _text: string) => {
+        // Full reply insertion (inject into Gmail/Outlook compose) is Phase 3+.
+        // For now the SmartDrafter UI handles compose independently.
     }
 
     const handleApplyFilters = (filters: FilterOptions) => {
@@ -178,10 +217,11 @@ function SidePanel() {
                     <motion.button
                         whileHover={{ scale: 1.05 }}
                         whileTap={{ scale: 0.95 }}
+                        onClick={() => setShowDrafter(true)}
                         className="p-2 hover:bg-white/10 rounded-lg transition-colors text-zinc-400 hover:text-white"
-                        title="AI Actions"
+                        title="Compose with AI (⌘K)"
                     >
-                        <Sparkles size={18} />
+                        <PenSquare size={18} />
                     </motion.button>
                     <motion.button
                         whileHover={{ scale: 1.05 }}
@@ -238,7 +278,22 @@ function SidePanel() {
                                     className="flex flex-col items-center justify-center h-64 text-zinc-500 text-center px-6"
                                 >
                                     <Inbox size={32} className="mb-4 opacity-20" />
-                                    <p className="text-sm">No emails found</p>
+                                    {notOnMailTab ? (
+                                        <>
+                                            <p className="text-sm text-zinc-300">Open Gmail or Outlook to load your inbox</p>
+                                            <p className="text-xs mt-2 text-zinc-500 max-w-[220px]">
+                                                Inbox AI reads the mail tab you're viewing. Switch to a Gmail or Outlook tab to get started.
+                                            </p>
+                                            <button
+                                                onClick={() => chrome.tabs.create({ url: 'https://mail.google.com' })}
+                                                className="mt-4 px-4 py-2 bg-white text-black rounded-lg text-xs font-bold hover:bg-zinc-200 transition-colors"
+                                            >
+                                                Open Gmail
+                                            </button>
+                                        </>
+                                    ) : (
+                                        <p className="text-sm">No emails found</p>
+                                    )}
                                 </motion.div>
                             ) : (
                                 filteredEmails.map((email) => (
@@ -269,7 +324,15 @@ function SidePanel() {
                         onClose={() => setShowSettings(false)}
                     />
                 )}
+                {showDrafter && (
+                    <SmartDrafter
+                        onClose={() => setShowDrafter(false)}
+                    />
+                )}
             </AnimatePresence>
+
+            {/* Cmd+K command palette — always mounted so keyboard listener is active */}
+            <CommandPalette />
         </div>
     )
 }
